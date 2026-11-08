@@ -1,0 +1,28 @@
+Toneline EQ - privacy
+================
+
+Short version: Toneline EQ collects nothing and sends nothing about you anywhere.
+There are no accounts, no analytics, no tracking and no ads.
+
+What stays on your PC
+- Presets and settings: %APPDATA%\TonelineEQ
+- Error log (only if something goes wrong): %APPDATA%\TonelineEQ\error.log.
+  It is never sent anywhere. Read it before you paste it into a bug report.
+- "Test my mic" records 5 seconds into %TEMP%\TonelineEQ-mic-test.wav on your PC
+  and plays it back to you. It is never uploaded.
+- The visualizer listens to your audio only to draw the bars, in memory.
+- "Now Playing" asks Windows which song is playing, to show it in the app.
+- Share codes contain only the preset's name and EQ settings, and only go
+  where you paste them.
+
+When Toneline EQ uses the internet
+- Only when you search in "Find my headphones": Toneline EQ downloads AutoEQ files
+  from raw.githubusercontent.com (GitHub). GitHub sees a normal web request
+  from your IP address, as with any website (see GitHub's privacy statement).
+- "Get Equalizer APO" and the license link open your web browser.
+Nothing else connects to the internet.
+
+Removing your data
+Uninstall Toneline EQ from Windows Settings > Apps, or delete %APPDATA%\TonelineEQ.
+
+Questions: open an issue on Toneline EQ's GitHub page.

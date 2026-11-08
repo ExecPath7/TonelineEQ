@@ -1,0 +1,22 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+# The build only reads the code: it gets no write access and uses no secrets.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with the .NET Framework compiler
+        shell: cmd
+        run: build.cmd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TonelineEQ-build
+          path: out/

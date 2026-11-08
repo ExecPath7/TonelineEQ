@@ -1,0 +1,11 @@
+out/
+test/
+*.exe
+*.pdb
+build.txt
+build-log.txt
+done.txt
+request.txt
+Thumbs.db
+desktop.ini
+.vs/
