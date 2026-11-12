@@ -451,6 +451,11 @@ namespace TonelineEQ
             sp.Children.Add(OptionRow("Start with Windows", "Toneline EQ opens quietly in the tray when you sign in.", Toggle(IsStartup(), delegate (bool on) { SetStartup(on); })));
             sp.Children.Add(OptionRow("Keep running in the tray when I close the window", "Off means the close button quits Toneline EQ. Your EQ stays on either way, because Equalizer APO applies it.", Toggle(CloseToTray, delegate (bool on) { CloseToTray = on; SaveAll(); })));
             sp.Children.Add(OptionRow("Show tray notifications", "The reminder that Toneline EQ is still running after you close the window.", Toggle(Notify, delegate (bool on) { Notify = on; SaveAll(); })));
+            sp.Children.Add(OptionRow("Check for updates automatically", "Once a day Toneline EQ asks its GitHub page whether a newer version is out. Nothing is installed until you click Update. You have version " + Program.Version + ".",
+                Toggle(AutoUpdateCheck, delegate (bool on) { SetAutoUpdateCheck(on); })));
+            WrapPanel upd = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+            AddLinkButton(upd, "Check for updates now", delegate { CheckForUpdate(true); });
+            sp.Children.Add(upd);
             sp.Children.Add(OptionRow("Use less memory in the tray", "A few seconds after you close the window, Toneline EQ frees its interface, so it uses very little memory in the background. Reopening takes a moment longer.", Toggle(LowMemory, delegate (bool on) { LowMemory = on; SaveAll(); })));
             string keys = "Ctrl+Alt+E: headphone EQ on/off.  Ctrl+Alt+M: mic EQ on/off.  Ctrl+Alt+Page Down / Page Up: next / previous headphone preset. They work in games too and show a small on-screen message.";
             if (Hotkeys && HotkeyProblems.Count > 0) keys += "  Already used by another app: " + string.Join(", ", HotkeyProblems) + ".";
@@ -811,7 +816,21 @@ namespace TonelineEQ
             return ok;
         }
 
+        // Same question, with the app's accent color on the button that goes ahead (for choices that aren't destructive).
+        public bool Ask(string title, string message, string actionLabel, string cancelLabel)
+        {
+            if (Program.SelfTest) return true;
+            bool ok = false;
+            MakeConfirm(title, message, actionLabel, delegate (bool yes) { ok = yes; }, false, cancelLabel).ShowDialog();
+            return ok;
+        }
+
         public Window MakeConfirm(string title, string message, string actionLabel, Action<bool> answered)
+        {
+            return MakeConfirm(title, message, actionLabel, answered, true, "Cancel");
+        }
+
+        public Window MakeConfirm(string title, string message, string actionLabel, Action<bool> answered, bool destructive, string cancelLabel)
         {
             Window win = new Window
             {
@@ -837,13 +856,17 @@ namespace TonelineEQ
 
             DockPanel buttons = new DockPanel { LastChildFill = false };
             Button go = Ui.Btn(actionLabel, delegate { if (answered != null) answered(true); win.Close(); });
-            go.Background = Theme.Solid(Theme.Parse(Theme.IsLight ? "#FF3B30" : "#FF453A"));
-            go.Foreground = Brushes.White;
+            if (destructive)
+            {
+                go.Background = Theme.Solid(Theme.Parse(Theme.IsLight ? "#FF3B30" : "#FF453A"));
+                go.Foreground = Brushes.White;
+            }
+            else Ui.Primary(go);
             go.FontWeight = FontWeights.SemiBold;
             go.Padding = new Thickness(18, 7, 18, 7);
             DockPanel.SetDock(go, Dock.Right);
             buttons.Children.Add(go);
-            Button cancel = Ui.Btn("Cancel", delegate { win.Close(); });
+            Button cancel = Ui.Btn(cancelLabel, delegate { win.Close(); });
             cancel.IsCancel = true;
             cancel.IsDefault = true;
             cancel.Padding = new Thickness(18, 7, 18, 7);

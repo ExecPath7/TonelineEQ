@@ -20,7 +20,7 @@
 
 <p align="center">
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0A84FF">
-  <img alt="Version 0.6" src="https://img.shields.io/badge/version-0.6-30D158">
+  <img alt="Version 0.65" src="https://img.shields.io/badge/version-0.65-30D158">
   <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-8E8E93">
   <img alt="Free, no ads, no tracking" src="https://img.shields.io/badge/free-no%20ads%20%C2%B7%20no%20tracking-FF9F0A">
 </p>
@@ -90,6 +90,7 @@
 - **Effects & plugins:** gain, balance, mono, channel swap, impulse responses (convolution), VST2 plugins and custom Equalizer APO commands.
 - **Smooth and native:** Windows 11 Mica translucency, the Inter font, spring animations and smooth scrolling.
 - **A built-in guide** that explains bass, mids and treble in plain words.
+- **Updates in one click:** when a new version is out, an Update button shows what's new and installs it for you. Nothing installs without your click.
 
 ## Keyboard shortcuts
 

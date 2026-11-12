@@ -94,7 +94,9 @@ The **?** button at the top opens a short guide that explains bass, mids and tre
 
 ## Updating
 
-Download the new version, extract it, and run **`Install Toneline EQ.cmd`** again. The installer says **Update**. Your presets, settings and device links are kept.
+From version 0.65 on, Toneline EQ updates itself. The first time it opens it asks whether to check for updates once a day. When a new version is out, an **Update** button appears at the top of the window: click it, read what's new, and click **Update now**. Toneline EQ downloads the new version from GitHub, builds it (about half a minute), and restarts. You can turn the daily check off, or check by hand, in **Settings > General**.
+
+To update by hand instead: download the new version, extract it, and run **`Install Toneline EQ.cmd`** again. The installer says **Update**. Either way, your presets, settings and device links are kept.
 
 Coming from **EasyEQ** (Toneline EQ's old name)? Install Toneline EQ the same way. It removes EasyEQ and brings over your presets, settings, colors and device links. Old `EasyEQ:` share codes keep working.
 

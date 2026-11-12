@@ -1,4 +1,4 @@
-Toneline EQ 0.6 - a free, system-wide equalizer for Windows
+Toneline EQ 0.65 - a free, system-wide equalizer for Windows
 ======================================================
 
 Two equalizers in one small app:

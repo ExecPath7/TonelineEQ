@@ -248,6 +248,7 @@ namespace TonelineEQ
             try { string oldRec = Path.Combine(Path.GetTempPath(), "TonelineEQ-mic-test.wav"); if (File.Exists(oldRec)) File.Delete(oldRec); } catch { }
             Application.Current.Exit += delegate { if (tray != null) { tray.Visible = false; tray.Dispose(); tray = null; } };
             if (askStartup && !Program.SelfTest) SetStartup(true);
+            StartUpdater();
             new WindowInteropHelper(this).EnsureHandle();
             if (!Program.SelfTest) SetupHotkeys();
             WatchDevicesNow();
@@ -287,6 +288,7 @@ namespace TonelineEQ
             if (s.TryGetValue("lowMemory", out v)) LowMemory = v != "0";
             if (s.TryGetValue("translucent", out v)) Translucent = v != "0";
             if (s.TryGetValue("sidebar", out v)) SidebarOpen = v == "1";
+            LoadUpdateOptions(s);
             deviceMap.Clear();
             foreach (KeyValuePair<string, string> kv in s)
                 if (kv.Key.StartsWith("map.") && kv.Value.Length > 0) deviceMap[kv.Key.Substring(4)] = kv.Value;
@@ -313,6 +315,7 @@ namespace TonelineEQ
                 s["lowMemory"] = LowMemory ? "1" : "0";
                 s["translucent"] = Translucent ? "1" : "0";
                 s["sidebar"] = SidebarOpen ? "1" : "0";
+                SaveUpdateOptions(s);
                 foreach (KeyValuePair<string, string> kv in deviceMap) s["map." + kv.Key] = kv.Value;
                 Theme.Save(s);
                 OutPage.SaveState(s);
@@ -371,6 +374,10 @@ namespace TonelineEQ
             statusChip = chip;
             DockPanel.SetDock(chip, Dock.Right);
             header.Children.Add(chip);
+            Button pill = MakeUpdatePill();
+            DockPanel.SetDock(pill, Dock.Right);
+            header.Children.Add(pill);
+            ShowUpdatePill();
             Button setBtn = Ui.Icon("\uE713", "Settings (Ctrl+,): startup, tray, devices, visualizer, look and plugins", delegate { OpenSettings(); });
             setBtn.Margin = new Thickness(0, 0, 10, 0);
             DockPanel.SetDock(setBtn, Dock.Right);

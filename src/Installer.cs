@@ -209,19 +209,65 @@ namespace TonelineEQ
         }
 
         // The bundled Inter font (SIL Open Font License) goes next to TonelineEQ.exe in a fonts folder.
-        static void CopyFonts(string exeDir, string sourceDir)
+        static void CopyFonts(string exeDir, string sourceDir) { CopyFonts(exeDir, sourceDir, InstallDir); }
+
+        static void CopyFonts(string exeDir, string sourceDir, string installDir)
         {
             string from = null;
             if (!string.IsNullOrEmpty(sourceDir) && Directory.Exists(Path.Combine(sourceDir.Trim('"'), "fonts"))) from = Path.Combine(sourceDir.Trim('"'), "fonts");
             else if (Directory.Exists(Path.Combine(exeDir, "fonts"))) from = Path.Combine(exeDir, "fonts");
             if (from == null) return;
-            string to = Path.Combine(InstallDir, "fonts");
+            string to = Path.Combine(installDir, "fonts");
             if (string.Equals(Path.GetFullPath(from), Path.GetFullPath(to), StringComparison.OrdinalIgnoreCase)) return;
             Directory.CreateDirectory(to);
             foreach (string f in Directory.GetFiles(from))
             {
                 try { File.Copy(f, Path.Combine(to, Path.GetFileName(f)), true); }
                 catch (IOException) { }   // a running Toneline EQ may still hold the old font open; it is identical
+            }
+        }
+
+        // ---------------------------------------------------------------- update
+        // Run from the freshly built exe (see Updater.cs): close the running copy, replace the installed exe, its fonts and
+        // documents, update the version shown in Windows Settings > Apps, and open the new version. Shortcuts, "Start with
+        // Windows", presets and settings all point at the same place and stay as they are. into: the self-test's dry run.
+        public static bool FinishUpdate(string sourceDir, string into)
+        {
+            bool dryRun = !string.IsNullOrEmpty(into);
+            string dir = dryRun ? into : InstallDir;
+            string target = Path.Combine(dir, "TonelineEQ.exe");
+            try
+            {
+                if (!dryRun) StopRunningInstances();
+                Directory.CreateDirectory(dir);
+                // The old exe may stay locked for a moment after it closes.
+                for (int i = 0; ; i++)
+                {
+                    try { File.Copy(SelfExe, target, true); break; }
+                    catch (IOException) { if (i >= 40) throw; Thread.Sleep(250); }
+                    catch (UnauthorizedAccessException) { if (i >= 40) throw; Thread.Sleep(250); }
+                }
+                if (!string.IsNullOrEmpty(sourceDir) && Directory.Exists(sourceDir))
+                    foreach (string doc in new[] { "README.txt", "LICENSE.txt", "THIRD-PARTY-NOTICES.txt", "PRIVACY.txt" })
+                    {
+                        string src = Path.Combine(sourceDir, doc);
+                        if (File.Exists(src)) File.Copy(src, Path.Combine(dir, doc), true);
+                    }
+                CopyFonts(Path.GetDirectoryName(SelfExe), sourceDir, dir);
+                if (dryRun) return true;
+                Register(target);
+                Process.Start(new ProcessStartInfo(target, "--updated") { UseShellExecute = false, WorkingDirectory = dir });
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Store.LogError(ex);
+                if (!dryRun)
+                {
+                    MessageBox.Show("Toneline EQ couldn't finish the update: " + ex.Message + "\n\nYour presets and settings are safe. Download the new version from the Toneline EQ GitHub page and run its installer.", "Toneline EQ", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    try { if (File.Exists(target)) Process.Start(new ProcessStartInfo(target) { UseShellExecute = false, WorkingDirectory = dir }); } catch { }
+                }
+                return false;
             }
         }
 

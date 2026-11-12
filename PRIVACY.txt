@@ -20,6 +20,11 @@ When Toneline EQ uses the internet
   from raw.githubusercontent.com (GitHub). GitHub sees a normal web request
   from your IP address, as with any website (see GitHub's privacy statement).
   Toneline EQ refuses to download from any other address.
+- Update check, only if you said yes (or clicked "Check for updates now"): once
+  a day Toneline EQ asks api.github.com for the newest release of
+  ExecPath7/TonelineEQ. When you click Update, it downloads that version's
+  source code from codeload.github.com (GitHub) and builds it on your PC.
+  You can switch the daily check off in Settings > General.
 - "Get Equalizer APO" and the license link open your web browser.
 Nothing else connects to the internet.
 

@@ -364,11 +364,20 @@ namespace TonelineEQ
             if (!Uri.TryCreate(url, UriKind.Absolute, out uri) || uri.Scheme != Uri.UriSchemeHttps ||
                 !string.Equals(uri.Host, AutoEqHost, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Toneline EQ only downloads from the AutoEQ project on GitHub.");
+            string text = Encoding.UTF8.GetString(Fetch(uri, maxBytes, null, 15000));
+            return text.Length > 0 && text[0] == (char)0xFEFF ? text.Substring(1) : text;
+        }
+
+        // HTTPS GET with a time limit and a size limit, never following a redirect. Callers check the address first.
+        public static byte[] Fetch(Uri uri, int maxBytes, string accept, int timeoutMs)
+        {
+            if (uri.Scheme != Uri.UriSchemeHttps) throw new InvalidOperationException("Toneline EQ only downloads over HTTPS.");
             ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; // TLS 1.2
             HttpWebRequest req = (HttpWebRequest)WebRequest.Create(uri);
             req.UserAgent = "TonelineEQ";
-            req.Timeout = 15000;
-            req.ReadWriteTimeout = 15000;
+            if (accept != null) req.Accept = accept;
+            req.Timeout = timeoutMs;
+            req.ReadWriteTimeout = timeoutMs;
             req.AllowAutoRedirect = false;
             req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
             using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
@@ -377,15 +386,14 @@ namespace TonelineEQ
                 using (Stream s = resp.GetResponseStream())
                 using (MemoryStream ms = new MemoryStream())
                 {
-                    byte[] buf = new byte[16384];
+                    byte[] buf = new byte[65536];
                     int n;
                     while ((n = s.Read(buf, 0, buf.Length)) > 0)
                     {
                         ms.Write(buf, 0, n);
-                        if (ms.Length > maxBytes) throw new InvalidOperationException("The download is bigger than an AutoEQ file should be.");
+                        if (ms.Length > maxBytes) throw new InvalidOperationException("The download is bigger than expected, so Toneline EQ stopped it.");
                     }
-                    string text = Encoding.UTF8.GetString(ms.ToArray());
-                    return text.Length > 0 && text[0] == (char)0xFEFF ? text.Substring(1) : text;
+                    return ms.ToArray();
                 }
             }
         }

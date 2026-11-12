@@ -12,8 +12,9 @@ namespace TonelineEQ
 {
     public static class Program
     {
-        public const string Version = "0.6";
+        public const string Version = "0.65";
         public static bool StartInTray;
+        public static bool JustUpdated;   // started by the updater: say "Updated to ..." once
         public static bool SelfTest;
         static Mutex instanceLock;
 
@@ -62,6 +63,18 @@ namespace TonelineEQ
                 return;
             }
 
+            // Last step of an update: the freshly built exe closes the running copy and puts itself in place.
+            // (--into <folder> is the self-test's dry run: copy there, touch nothing else.)
+            if (Has(args, "--finish-update"))
+            {
+                int f = Array.FindIndex(args, a => string.Equals(a, "--finish-update", StringComparison.OrdinalIgnoreCase));
+                int into = Array.FindIndex(args, a => string.Equals(a, "--into", StringComparison.OrdinalIgnoreCase));
+                string src = f + 1 < args.Length ? args[f + 1].Trim('"') : null;
+                string target = into >= 0 && into + 1 < args.Length ? args[into + 1].Trim('"') : null;
+                Environment.ExitCode = Installer.FinishUpdate(src, target) ? 0 : 1;
+                return;
+            }
+
             // Self-test: runs every page and window in an isolated data folder, writes a report and screenshots, then exits.
             // It never writes to Equalizer APO, startup, hotkeys or the tray, and ignores any running Toneline EQ.
             if (Has(args, "--selftest"))
@@ -96,6 +109,7 @@ namespace TonelineEQ
             }
 
             StartInTray = Has(args, "--tray");
+            JustUpdated = Has(args, "--updated");
             bool created;
             instanceLock = new Mutex(true, "TonelineEQ.SingleInstance", out created);
             EventWaitHandle showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, "TonelineEQ.ShowWindow");

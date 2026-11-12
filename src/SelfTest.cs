@@ -854,6 +854,97 @@ namespace TonelineEQ
                     SetLive(was);
                 });
 
+                T("updater reads GitHub's answer", delegate
+                {
+                    string json = "{\"url\":\"https://api.github.com/x\",\"tag_name\":\"v9.9\",\"name\":\"Toneline EQ 9.9\",\"draft\":false,\"prerelease\":false," +
+                        "\"author\":{\"login\":\"ExecPath7\"},\"body\":\"## What's new\\r\\n- **Faster** graph\\r\\n- Caf\\u00e9 mode, see [notes](https://x.y)\\r\\n\"}";
+                    UpdateInfo ui = Updater.ParseRelease(json);
+                    Check(ui != null && ui.Version == "9.9" && ui.Tag == "v9.9", "tag not read");
+                    Check(ui.Notes.Contains("What's new") && ui.Notes.Contains("•  Faster graph") && ui.Notes.Contains("Café mode, see notes"), "notes: " + ui.Notes);
+                    Check(!ui.Notes.Contains("**") && !ui.Notes.Contains("http"), "markdown left in the notes");
+                    Check(Updater.ParseRelease(json.Replace("\"draft\":false", "\"draft\":true")) == null, "a draft was accepted");
+                    Check(Updater.ParseRelease(json.Replace("v9.9", "nightly")) == null, "a tag that isn't a version was accepted");
+                    Check(Updater.ParseRelease(json.Replace("v9.9", "v1.0/../../evil")) == null, "a path in the tag was accepted");
+                    Check(Updater.IsNewer("0.7", "0.65") && Updater.IsNewer("0.65", "0.6") && Updater.IsNewer("1.0", "0.65") && Updater.IsNewer("0.66", "0.65"), "newer versions not seen");
+                    Check(!Updater.IsNewer("0.65", "0.65") && !Updater.IsNewer("0.6", "0.65") && !Updater.IsNewer("0.5", "0.65") && !Updater.IsNewer("x", "0.65"), "an older version counted as newer");
+                });
+                T("updater only talks to its own GitHub page", delegate
+                {
+                    Check(Updater.ZipUri("v0.7").AbsoluteUri == "https://codeload.github.com/ExecPath7/TonelineEQ/zip/refs/tags/v0.7", Updater.ZipUri("v0.7").AbsoluteUri);
+                    Check(Updater.LatestUri.Host == "api.github.com", "API address");
+                    foreach (string[] bad in new[] { new[] { "https://evil.example/x", "api.github.com" }, new[] { "https://api.github.com/x", "evil.example" },
+                                                     new[] { "http://api.github.com/x", "api.github.com" }, new[] { "https://raw.githubusercontent.com/x", "raw.githubusercontent.com" } })
+                    {
+                        bool refused = false;
+                        try { Updater.Get(new Uri(bad[0]), bad[1], 100, null, 1000); } catch (InvalidOperationException) { refused = true; }
+                        Check(refused, "not refused: " + bad[0]);
+                    }
+                    string fake = Path.Combine(dir, "fake-update");
+                    if (Directory.Exists(fake)) Directory.Delete(fake, true);
+                    Directory.CreateDirectory(Path.Combine(Path.Combine(fake, "TonelineEQ-0.7"), "src"));
+                    Check(Updater.FindSource(fake) == null, "a folder without build.cmd was accepted");
+                    File.WriteAllText(Path.Combine(Path.Combine(fake, "TonelineEQ-0.7"), "build.cmd"), "");
+                    File.WriteAllText(Path.Combine(Path.Combine(Path.Combine(fake, "TonelineEQ-0.7"), "src"), "Program.cs"), "");
+                    Check(Updater.FindSource(fake) == Path.Combine(fake, "TonelineEQ-0.7"), "source folder not found");
+                    Directory.CreateDirectory(Path.Combine(fake, "Another"));
+                    Check(Updater.FindSource(fake) == null, "two top folders were accepted");
+                });
+                T("update button and window", delegate
+                {
+                    UpdateReady = new UpdateInfo { Tag = "v0.7", Version = "0.7", Page = "https://github.com/ExecPath7/TonelineEQ/releases/tag/v0.7",
+                        Notes = Updater.PlainNotes("## What's new\n- The graph draws faster\n- New presets for gaming headsets\n- Fixed: the mic test on USB microphones") };
+                    ShowUpdatePill();
+                    Check(updatePill != null && updatePill.Visibility == Visibility.Visible && (updatePill.Content as string) == "Update to 0.7", "the Update button didn't show");
+                    updateSkip = "0.7";
+                    ShowUpdatePill();
+                    Check(updatePill.Visibility == Visibility.Collapsed, "a skipped version still shows");
+                    updateSkip = "";
+                    ShowUpdatePill();
+                    updateWin = MakeUpdateWindow(UpdateReady);
+                    updateWin.Show();
+                    updateWin.UpdateLayout();
+                });
+                await Task.Delay(700);
+                T("screenshot: update", delegate
+                {
+                    Snap((FrameworkElement)updateWin.Content, "19-update.png");
+                    updateWin.Close();
+                    Snap((FrameworkElement)Content, "19b-update-button.png");
+                    UpdateReady = null;
+                    ShowUpdatePill();
+                });
+                string updZip = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dir)), "update-test.zip");
+                if (File.Exists(updZip))
+                {
+                    string updRoot = null;
+                    string updError = null;
+                    System.Diagnostics.Stopwatch updClock = System.Diagnostics.Stopwatch.StartNew();
+                    try { updRoot = await Task.Run(() => Updater.Prepare(new UpdateInfo { Tag = "v0.7", Version = "0.7" }, updZip, delegate (string step) { })); }
+                    catch (Exception updEx) { updError = updEx.Message; }
+                    T("update: unpack and build version 0.7 (" + updClock.ElapsedMilliseconds / 1000 + " s)", delegate
+                    {
+                        Check(updError == null, updError);
+                        Check(File.Exists(Path.Combine(Path.Combine(updRoot, "out"), "TonelineEQ.exe")), "no exe was built");
+                    });
+                    T("update: the new version puts itself in place (dry run)", delegate
+                    {
+                        string into = Path.Combine(dir, "update-into");
+                        if (Directory.Exists(into)) Directory.Delete(into, true);
+                        System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo(Path.Combine(Path.Combine(updRoot, "out"), "TonelineEQ.exe"),
+                            "--finish-update \"" + updRoot + "\" --into \"" + into + "\"");
+                        psi.UseShellExecute = false;
+                        using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi))
+                        {
+                            Check(p.WaitForExit(60000), "it didn't finish");
+                            Check(p.ExitCode == 0, "exit code " + p.ExitCode);
+                        }
+                        Check(File.Exists(Path.Combine(into, "TonelineEQ.exe")), "the exe wasn't copied");
+                        Check(File.Exists(Path.Combine(into, "LICENSE.txt")), "the license wasn't copied");
+                        Check(File.Exists(Path.Combine(Path.Combine(into, "fonts"), "Inter-Regular.ttf")), "the fonts weren't copied");
+                    });
+                }
+                else TLog("      (update build test skipped: no update-test.zip next to the test folder)");
+
                 T("save settings", delegate { SaveAll(); Check(File.Exists(Path.Combine(Store.Dir, "settings.txt")), "settings.txt not written"); });
                 string log = Store.ReadText("error.log");
                 T("no errors logged by the app", delegate { Check(string.IsNullOrEmpty(log), "error.log:\r\n" + log); });
