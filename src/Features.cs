@@ -62,8 +62,7 @@ namespace TonelineEQ
                 List<AudioDevice> outs = null, mics = null;
                 try
                 {
-                    o = AudioDevices.DefaultId(0) ?? "";
-                    m = AudioDevices.DefaultId(1) ?? "";
+                    AudioDevices.DefaultIds(out o, out m);
                     if (listDue || o != knownOut || m != knownMic) { outs = AudioDevices.List(0, true); mics = AudioDevices.List(1, true); }
                 }
                 catch (Exception ex) { Store.LogError(ex); }
@@ -353,15 +352,53 @@ namespace TonelineEQ
         // ---------------------------------------------------------------- AutoEQ search
         const string AutoEqBase = "https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results/";
 
-        static string Download(string url)
+        const string AutoEqHost = "raw.githubusercontent.com";
+        const int MaxIndexBytes = 16 * 1024 * 1024, MaxPresetBytes = 512 * 1024;
+
+        // The one place Toneline EQ uses the internet. It only ever fetches text from the AutoEQ project on GitHub:
+        // encrypted (HTTPS), from that one address, never following a redirect to another site, with a time limit
+        // and a size limit so a broken or hostile answer can't hang the app or fill the memory.
+        public static string Download(string url, int maxBytes)
         {
+            Uri uri;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out uri) || uri.Scheme != Uri.UriSchemeHttps ||
+                !string.Equals(uri.Host, AutoEqHost, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Toneline EQ only downloads from the AutoEQ project on GitHub.");
             ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; // TLS 1.2
-            using (WebClient wc = new WebClient())
+            HttpWebRequest req = (HttpWebRequest)WebRequest.Create(uri);
+            req.UserAgent = "TonelineEQ";
+            req.Timeout = 15000;
+            req.ReadWriteTimeout = 15000;
+            req.AllowAutoRedirect = false;
+            req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+            using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
             {
-                wc.Encoding = Encoding.UTF8;
-                wc.Headers[HttpRequestHeader.UserAgent] = "TonelineEQ";
-                return wc.DownloadString(url);
+                if (resp.StatusCode != HttpStatusCode.OK) throw new WebException("GitHub answered " + (int)resp.StatusCode + ".");
+                using (Stream s = resp.GetResponseStream())
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    byte[] buf = new byte[16384];
+                    int n;
+                    while ((n = s.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        ms.Write(buf, 0, n);
+                        if (ms.Length > maxBytes) throw new InvalidOperationException("The download is bigger than an AutoEQ file should be.");
+                    }
+                    string text = Encoding.UTF8.GetString(ms.ToArray());
+                    return text.Length > 0 && text[0] == (char)0xFEFF ? text.Substring(1) : text;
+                }
             }
+        }
+
+        // A folder path from the AutoEQ list that is safe to put in a download address: it stays inside the
+        // AutoEQ results folder and can't point at another site or another GitHub project.
+        public static bool AutoEqPathOk(string path)
+        {
+            if (string.IsNullOrEmpty(path) || path.Length > 300) return false;
+            if (path.StartsWith("/") || path.Contains("..") || path.Contains("//")) return false;
+            foreach (char c in path)
+                if (char.IsControl(c) || c == '\\' || c == '?' || c == '#' || c == ':' || c == '@') return false;
+            return true;
         }
 
         static List<AutoEqEntry> LoadAutoEqIndex()
@@ -374,7 +411,7 @@ namespace TonelineEQ
             {
                 try
                 {
-                    text = Download(AutoEqBase + "INDEX.md");
+                    text = Download(AutoEqBase + "INDEX.md", MaxIndexBytes);
                     File.WriteAllText(cache, text);
                 }
                 catch
@@ -388,8 +425,8 @@ namespace TonelineEQ
             foreach (string line in text.Replace("\r", "").Split('\n'))
             {
                 Match m = rx.Match(line);
-                if (!m.Success) continue;
-                list.Add(new AutoEqEntry { Name = m.Groups[1].Value, Path = m.Groups[2].Value, Source = m.Groups[3].Value });
+                if (!m.Success || !AutoEqPathOk(m.Groups[2].Value)) continue;
+                list.Add(new AutoEqEntry { Name = ApoFormat.CleanName(m.Groups[1].Value), Path = m.Groups[2].Value, Source = ApoFormat.CleanName(m.Groups[3].Value) });
             }
             return list;
         }
@@ -470,7 +507,7 @@ namespace TonelineEQ
                 ThreadPool.QueueUserWorkItem(delegate
                 {
                     string text = null, error = null;
-                    try { text = Download(url); } catch (Exception ex) { error = ex.Message; }
+                    try { text = Download(url, MaxPresetBytes); } catch (Exception ex) { error = ex.Message; }
                     win.Dispatcher.BeginInvoke(new Action(delegate
                     {
                         downloading = false;

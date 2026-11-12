@@ -111,6 +111,35 @@ namespace TonelineEQ
             }
         }
 
+        // Both default devices (playback and recording) in one trip to Windows; "" where there is none.
+        // The device watcher calls this every few seconds, also in the tray, so it does as little as possible.
+        public static void DefaultIds(out string playback, out string recording)
+        {
+            playback = "";
+            recording = "";
+            IMMDeviceEnumerator en = null;
+            try
+            {
+                en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+                playback = IdOfDefault(en, 0) ?? "";
+                recording = IdOfDefault(en, 1) ?? "";
+            }
+            catch { }
+            finally { if (en != null) Marshal.ReleaseComObject(en); }
+        }
+
+        static string IdOfDefault(IMMDeviceEnumerator en, int dataFlow)
+        {
+            IMMDevice dev = null;
+            try
+            {
+                if (en.GetDefaultAudioEndpoint(dataFlow, 0, out dev) < 0 || dev == null) return null;
+                string id;
+                return dev.GetId(out id) >= 0 ? id : null;
+            }
+            finally { if (dev != null) Marshal.ReleaseComObject(dev); }
+        }
+
         public static string GuidOf(string id)
         {
             if (string.IsNullOrEmpty(id)) return "";

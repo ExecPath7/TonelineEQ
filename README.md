@@ -20,7 +20,7 @@
 
 <p align="center">
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0A84FF">
-  <img alt="Version 0.5" src="https://img.shields.io/badge/version-0.5-30D158">
+  <img alt="Version 0.6" src="https://img.shields.io/badge/version-0.6-30D158">
   <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-8E8E93">
   <img alt="Free, no ads, no tracking" src="https://img.shields.io/badge/free-no%20ads%20%C2%B7%20no%20tracking-FF9F0A">
 </p>
@@ -102,7 +102,7 @@ These work anywhere, even in full-screen games.
 | Ctrl+Alt+Page Down | Next headphone preset |
 | Ctrl+Alt+Page Up | Previous headphone preset |
 
-Inside the app: Ctrl+Z / Ctrl+Y undo and redo, Delete removes the selected band, and Ctrl+, opens Settings.
+Inside the app: Ctrl+Z / Ctrl+Y undo and redo, the arrow keys nudge the selected band (Shift for small steps), Delete removes it, and Ctrl+, opens Settings. Tab reaches every control.
 
 ## FAQ
 

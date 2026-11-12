@@ -56,7 +56,7 @@ namespace TonelineEQ
             using (StreamGeometryContext c = g.Open())
             {
                 c.BeginFigure(pts[0], closedFill, closedFill);
-                c.PolyLineTo(pts.Skip(1).ToList(), true, true);
+                for (int i = 1; i < pts.Count; i++) c.LineTo(pts[i], true, true);
             }
             g.Freeze();
             return g;
@@ -216,6 +216,7 @@ namespace TonelineEQ
                 dc.PushClip(new RectangleGeometry(p));
                 Pen pen = new Pen(Theme.Solid(Plot.WithAlpha(LevelColors.Stops(ColorMode)[1], 0.85)), 2);
                 pen.LineJoin = PenLineJoin.Round;
+                pen.Freeze();
                 dc.DrawGeometry(null, pen, Plot.Line(pts, false));
                 dc.Pop();
             }
@@ -237,6 +238,13 @@ namespace TonelineEQ
 
         int dragging = -1;
         int hover = -1;
+
+        public ResponseGraph()
+        {
+            // Keyboard: click the graph (or Tab to it), then the arrow keys move the selected band.
+            Focusable = true;
+            FocusVisualStyle = null;
+        }
 
         const double DotR = 8, DotHoverR = 10.5;
         const double MorphMs = 260;
@@ -358,6 +366,8 @@ namespace TonelineEQ
             // Quiet dB grid: the 0 dB line a little stronger, +-6 and +-12 dB faint, labels on the right.
             Pen gridZero = new Pen(Theme.Solid(Plot.WithAlpha(text, 0.13)), 1);
             Pen gridLine = new Pen(Theme.Solid(Plot.WithAlpha(text, 0.055)), 1);
+            gridZero.Freeze();   // frozen pens and brushes are cheaper for Windows to draw
+            gridLine.Freeze();
             Brush gridLabel = Theme.Solid(Plot.WithAlpha(text, 0.4));
             List<KeyValuePair<FormattedText, Point>> gridTexts = new List<KeyValuePair<FormattedText, Point>>();
             foreach (double mark in new double[] { 12, 6, 0, -6, -12 })
@@ -366,7 +376,7 @@ namespace TonelineEQ
                 double gy = Math.Round(Y(p, mark)) + 0.5;
                 dc.DrawLine(mark == 0 ? gridZero : gridLine, new Point(p.Left, gy), new Point(p.Right, gy));
                 string gl = (mark > 0 ? "+" : "") + mark.ToString("0", CultureInfo.InvariantCulture) + (mark == 0 ? " dB" : "");
-                FormattedText gft = Plot.Text(gl, 9.5, gridLabel);
+                FormattedText gft = Plot.Text(gl, 10, gridLabel);
                 double ly = gy - gft.Height - 3;
                 if (ly < 1) ly = gy + 3;   // the top line (e.g. +12 on a +-12 dB graph): label goes underneath
                 gridTexts.Add(new KeyValuePair<FormattedText, Point>(gft, new Point(p.Right - gft.Width - 2, ly)));
@@ -375,6 +385,7 @@ namespace TonelineEQ
             // Dashed guide at every band; region names underneath, like LOW / MID / HIGH.
             Pen dash = new Pen(Theme.Solid(Plot.WithAlpha(text, 0.22)), 1);
             dash.DashStyle = new DashStyle(new double[] { 3, 4 }, 0);
+            dash.Freeze();
             for (int k = 0; k < Bands.Count; k++)
             {
                 if (!Bands[k].Enabled) continue;
@@ -450,6 +461,7 @@ namespace TonelineEQ
 
             Pen outline = new Pen(Theme.Br("#1C1C1E"), 8);
             outline.LineJoin = PenLineJoin.Round; outline.StartLineCap = PenLineCap.Round; outline.EndLineCap = PenLineCap.Round;
+            outline.Freeze();
             dc.DrawGeometry(null, outline, geo);
             LinearGradientBrush tone = new LinearGradientBrush();
             tone.MappingMode = BrushMappingMode.Absolute;
@@ -459,6 +471,7 @@ namespace TonelineEQ
             tone.Freeze();
             Pen curvePen = new Pen(tone, 3.5);
             curvePen.LineJoin = PenLineJoin.Round; curvePen.StartLineCap = PenLineCap.Round; curvePen.EndLineCap = PenLineCap.Round;
+            curvePen.Freeze();
             dc.DrawGeometry(null, curvePen, geo);
 
             // Dots in the colour of their level, ringed in the card colour; they grow smoothly under the mouse.
@@ -466,6 +479,8 @@ namespace TonelineEQ
             if (radius.Count > Bands.Count) radius.RemoveRange(Bands.Count, radius.Count - Bands.Count);
             double follow = 1 - Math.Exp(-dt / 0.05);
             Brush ring = Theme.Br("#1C1C1E");
+            Pen ringPen = new Pen(ring, 3);
+            ringPen.Freeze();
             for (int k = 0; k < Bands.Count; k++)
             {
                 Band b = Bands[k];
@@ -474,7 +489,7 @@ namespace TonelineEQ
                 if (Math.Abs(want - radius[k]) > 0.05) keepTicking = true; else radius[k] = want;
                 Color hc = LevelColors.At((b.HasGain ? b.Gain : -3) / RangeDb, ColorMode);
                 dc.PushOpacity(b.Enabled ? 1.0 : 0.35);
-                dc.DrawEllipse(Theme.Solid(hc), new Pen(ring, 3), dots[k], radius[k], radius[k]);
+                dc.DrawEllipse(Theme.Solid(hc), ringPen, dots[k], radius[k], radius[k]);
                 dc.Pop();
             }
 
@@ -516,6 +531,7 @@ namespace TonelineEQ
                 e.Handled = true;
                 return;
             }
+            Focus();
             if (hit >= 0) { dragging = hit; CaptureMouse(); }
             Selected = hit;
             if (BandSelected != null) BandSelected(hit);
@@ -553,6 +569,53 @@ namespace TonelineEQ
             dragging = -1;
             if (IsMouseCaptured) ReleaseMouseCapture();
             InvalidateVisual();
+        }
+
+        // Windows can take the mouse away in the middle of a drag (Alt+Tab, a system message): end the drag
+        // instead of leaving the dot stuck in its "being dragged" look.
+        protected override void OnLostMouseCapture(MouseEventArgs e)
+        {
+            if (dragging != -1) { dragging = -1; InvalidateVisual(); }
+        }
+
+        // Arrow keys move the selected band: up and down change the gain by 0.5 dB, left and right move the
+        // frequency by a semitone. With Shift the steps are fine (0.1 dB, a quarter of a semitone).
+        // With no band selected, the first arrow key selects band 1.
+        public bool Nudge(Key key, bool fine)
+        {
+            if (key != Key.Up && key != Key.Down && key != Key.Left && key != Key.Right) return false;
+            if (Bands.Count == 0) return false;
+            if (Selected < 0 || Selected >= Bands.Count)
+            {
+                Selected = 0;
+                if (BandSelected != null) BandSelected(0);
+                InvalidateVisual();
+                return true;
+            }
+            Band b = Bands[Selected];
+            if (key == Key.Up || key == Key.Down)
+            {
+                if (!b.HasGain) return true;
+                double step = (fine ? 0.1 : 0.5) * (key == Key.Up ? 1 : -1);
+                b.Gain = Math.Round(ApoFormat.Clamp(b.Gain + step, -24, 24), 1);
+            }
+            else
+            {
+                double dir = key == Key.Right ? 1 : -1;
+                double next = Math.Round(b.Freq * Math.Pow(2, dir * (fine ? 1.0 / 48 : 1.0 / 12)));
+                if (Math.Abs(next - b.Freq) < 1) next = b.Freq + dir;   // near 20 Hz a step is less than 1 Hz
+                b.Freq = ApoFormat.Clamp(next, 20, 20000);
+            }
+            if (BandDragged != null) BandDragged(Selected);
+            InvalidateVisual();
+            return true;
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            ModifierKeys mods = Keyboard.Modifiers;
+            if (mods != ModifierKeys.None && mods != ModifierKeys.Shift) return;
+            if (Nudge(e.Key, mods == ModifierKeys.Shift)) e.Handled = true;
         }
 
         protected override void OnMouseWheel(MouseWheelEventArgs e)

@@ -191,7 +191,9 @@ namespace TonelineEQ
             watchTimer.Tick += delegate { WatchDevices(); };
 
             Dictionary<string, string> s = Store.LoadSettings();
-            bool askStartup = !s.ContainsKey("startupAsked");
+            // Only the installed copy may switch on "Start with Windows" by itself (the installer shows that choice).
+            // A copy that is just being tried from a download or build folder never adds itself to Windows startup.
+            bool askStartup = !s.ContainsKey("startupAsked") && IsInstalledCopy();
             Theme.Load(s);
             LoadOptions(s);
             OutPage = new EqPage(PageKind.Output, this);
@@ -240,6 +242,10 @@ namespace TonelineEQ
 
             if (!Program.SelfTest) SetupTray();
             Application.Current.SessionEnding += delegate { quitting = true; };
+            Application.Current.Activated += delegate { AppActive = true; };
+            Application.Current.Deactivated += delegate { AppActive = false; };
+            // Older versions kept the last "Test my mic" recording in the temp folder. It now stays in memory; remove the leftover.
+            try { string oldRec = Path.Combine(Path.GetTempPath(), "TonelineEQ-mic-test.wav"); if (File.Exists(oldRec)) File.Delete(oldRec); } catch { }
             Application.Current.Exit += delegate { if (tray != null) { tray.Visible = false; tray.Dispose(); tray = null; } };
             if (askStartup && !Program.SelfTest) SetStartup(true);
             new WindowInteropHelper(this).EnsureHandle();
@@ -249,6 +255,15 @@ namespace TonelineEQ
             RefreshApo();
             ApplyNow();
             if (Program.StartInTray) Dispatcher.BeginInvoke(new Action(TrimMemory), DispatcherPriority.ApplicationIdle);
+        }
+
+        // True while Toneline EQ (any of its windows) is the app you're using. The visualizer slows down when it isn't.
+        public bool AppActive = true;
+
+        static bool IsInstalledCopy()
+        {
+            try { return string.Equals(Path.GetFullPath(Process.GetCurrentProcess().MainModule.FileName), Path.GetFullPath(Installer.InstalledExe), StringComparison.OrdinalIgnoreCase); }
+            catch { return false; }
         }
 
         // ---------------------------------------------------------------- options
@@ -262,10 +277,11 @@ namespace TonelineEQ
             if (s.TryGetValue("autoPreamp", out v)) AutoPreamp = v == "1";
             if (s.TryGetValue("vizFilled", out v)) VizFilled = v != "0";
             if (s.TryGetValue("vizColor", out v) && int.TryParse(v, NumberStyles.Integer, IC, out n)) VizColor = Math.Max(0, Math.Min(3, n));
-            if (s.TryGetValue("graphRange", out v) && double.TryParse(v, NumberStyles.Float, IC, out d)) GraphRange = d;
-            if (s.TryGetValue("vizRange", out v) && double.TryParse(v, NumberStyles.Float, IC, out d)) VizRange = d;
-            if (s.TryGetValue("vizRate", out v) && int.TryParse(v, NumberStyles.Integer, IC, out n)) VizFps = n;
-            if (s.TryGetValue("vizSmooth", out v) && int.TryParse(v, NumberStyles.Integer, IC, out n)) VizSmooth = n;
+            // Values from the settings file are kept inside what the Settings window offers, so a damaged file can't break the graph.
+            if (s.TryGetValue("graphRange", out v) && double.TryParse(v, NumberStyles.Float, IC, out d)) GraphRange = ApoFormat.Clamp(d, 6, 24);
+            if (s.TryGetValue("vizRange", out v) && double.TryParse(v, NumberStyles.Float, IC, out d)) VizRange = ApoFormat.Clamp(d, 40, 120);
+            if (s.TryGetValue("vizRate", out v) && int.TryParse(v, NumberStyles.Integer, IC, out n)) VizFps = Math.Max(0, Math.Min(360, n));
+            if (s.TryGetValue("vizSmooth", out v) && int.TryParse(v, NumberStyles.Integer, IC, out n)) VizSmooth = Math.Max(0, Math.Min(2, n));
             if (s.TryGetValue("levelMatch", out v)) LevelMatch = v != "0";
             if (s.TryGetValue("hotkeys", out v)) Hotkeys = v != "0";
             if (s.TryGetValue("lowMemory", out v)) LowMemory = v != "0";
@@ -346,7 +362,7 @@ namespace TonelineEQ
             // header
             DockPanel header = new DockPanel { Margin = new Thickness(0, 0, glassOn ? Glass.CaptionButtonsWidth - 22 : 0, 16), MinHeight = 36 };
             StackPanel chipRow = new StackPanel { Orientation = Orientation.Horizontal };
-            statusDot = new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, Fill = Theme.Br("#636366"), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            statusDot = new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, Fill = lastLive ? Theme.Solid(Theme.Green) : Theme.Br("#636366"), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
             statusText = Ui.Txt(lastStatus, 12, "#C7C7CC");
             statusText.FontWeight = FontWeights.Medium;
             chipRow.Children.Add(statusDot);
@@ -532,8 +548,11 @@ namespace TonelineEQ
             if (statusText != null) statusText.Text = text;
         }
 
+        bool lastLive;   // kept so the dot stays green when the window is rebuilt (theme change, back from the tray)
+
         void SetLive(bool live)
         {
+            lastLive = live;
             if (statusDot != null) statusDot.Fill = live ? Theme.Solid(Theme.Green) : Theme.Br("#636366");
         }
 
@@ -622,7 +641,7 @@ namespace TonelineEQ
                 return;
             }
             apoWritable = Apo.CanWrite(apoDir);
-            if (apoWritable) Apo.MigrateLegacy(apoDir);
+            if (apoWritable && !Program.SelfTest) Apo.MigrateLegacy(apoDir);
             apoHooked = Apo.IsHooked(apoDir);
             if (!apoWritable)
                 ShowBanner("Windows blocked Toneline EQ from saving into Equalizer APO's config folder. Run it as administrator once to connect.", "Restart as administrator", RestartAsAdmin);
@@ -686,7 +705,7 @@ namespace TonelineEQ
         public void OpenApoFolder()
         {
             if (apoDir == null) { SetStatus("Equalizer APO isn't installed"); return; }
-            try { Process.Start("explorer.exe", "\"" + apoDir + "\""); } catch (Exception ex) { SetStatus(ex.Message); }
+            try { Process.Start(Sys.Tool("explorer.exe"), "\"" + apoDir + "\""); } catch (Exception ex) { SetStatus(ex.Message); }
         }
 
         public void OpenConfigurator()
@@ -700,12 +719,15 @@ namespace TonelineEQ
 
         public static void OpenRecordingSettings()
         {
-            try { Process.Start("control.exe", "mmsys.cpl,,1"); } catch { }
+            try { Process.Start(Sys.Tool("control.exe"), "mmsys.cpl,,1"); } catch { }
         }
 
+        // Opens a web page in the browser. Only real web addresses are passed on to Windows, never a file or a program.
         public static void OpenUrl(string url)
         {
-            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+            Uri u;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out u) || (u.Scheme != Uri.UriSchemeHttps && u.Scheme != Uri.UriSchemeHttp)) return;
+            try { Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true }); } catch { }
         }
 
         // ---------------------------------------------------------------- tray / background
@@ -752,7 +774,7 @@ namespace TonelineEQ
                 if (lastGroup != null && p.Group != lastGroup) menu.DropDownItems.Add(new WF.ToolStripSeparator());
                 lastGroup = p.Group;
                 Preset cap = p;
-                WF.ToolStripMenuItem it = new WF.ToolStripMenuItem(p.Name, null, delegate { page.LoadPreset(cap); page.SelectInList(cap.Name); });
+                WF.ToolStripMenuItem it = new WF.ToolStripMenuItem(p.Name.Replace("&", "&&"), null, delegate { page.LoadPreset(cap); page.SelectInList(cap.Name); });
                 it.Checked = !page.Dirty && page.Current.Name == p.Name;
                 menu.DropDownItems.Add(it);
             }

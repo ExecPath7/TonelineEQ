@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
@@ -123,7 +124,16 @@ namespace TonelineEQ
             b.Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 14, VerticalAlignment = VerticalAlignment.Center };
             b.Padding = new Thickness(11, 7, 11, 7);
             b.ToolTip = tip;
+            AutomationProperties.SetName(b, ShortName(tip));
             return b;
+        }
+
+        // The first words of a tooltip, used as a control's name for screen readers (an icon alone says nothing).
+        public static string ShortName(string tip)
+        {
+            if (string.IsNullOrEmpty(tip)) return "";
+            int cut = tip.IndexOfAny(new char[] { ':', '(', '.', '\n' });
+            return (cut > 0 ? tip.Substring(0, cut) : tip).Trim();
         }
 
         // Grey placeholder text inside an empty text box.
@@ -181,7 +191,7 @@ namespace TonelineEQ
                 double mul = 1;
                 if (s.EndsWith("k")) { mul = 1000; s = s.Substring(0, s.Length - 1); }
                 double v;
-                if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v)) commit(v * mul);
+                if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out v) && !double.IsNaN(v) && !double.IsInfinity(v)) commit(v * mul);
             };
             tb.KeyDown += delegate (object sender, KeyEventArgs e) { if (e.Key == Key.Enter) { doCommit(); e.Handled = true; } };
             tb.LostKeyboardFocus += delegate { doCommit(); };
@@ -573,6 +583,7 @@ namespace TonelineEQ
                 syncing = true; preampBox.Text = ApoFormat.N(Current.Preamp); syncing = false;
                 Edited();
             };
+            AutomationProperties.SetName(preampSlider, "Preamp");
             pre.Children.Add(preampSlider);
             preampBox = Ui.NumBox(delegate (double v) { Current.Preamp = ApoFormat.Clamp(v, -24, 6); SyncPreamp(); Edited(); });
             preampBox.Width = 58;
@@ -750,10 +761,13 @@ namespace TonelineEQ
         }
 
         // "Test my mic": record 5 s from the EQ'd mic, then play it back on the speakers or headphones.
+        int micTestRun;   // counts the tests, so one that finishes late can't change the button of a newer one
+
         async void TestMic()
         {
             if (micTestState == 2) { if (micPlayer != null) micPlayer.Stop(); micTestState = 0; SetMicTestLabel("\uE720", "Test my mic"); return; }
             if (micTestState != 0) return;
+            int run = ++micTestRun;
             bool started = false;
             try
             {
@@ -769,15 +783,17 @@ namespace TonelineEQ
                 if (started && !vizRunning) capture.Stop();
                 started = false;
                 if (samples.Length < capture.SampleRate / 2) { micTestState = 0; SetMicTestLabel("\uE720", "Test my mic"); host.Say("No sound came from the microphone"); return; }
-                string wav = Path.Combine(Path.GetTempPath(), "TonelineEQ-mic-test.wav");
+                // The recording stays in memory and is gone after playback: nothing you say is written to the disk.
+                MemoryStream wav = new MemoryStream();
                 WriteWav(wav, samples, capture.SampleRate);
+                wav.Position = 0;
                 micTestState = 2;
                 SetMicTestLabel("\uE71A", "Stop playback");
                 if (micPlayer != null) micPlayer.Dispose();
                 micPlayer = new System.Media.SoundPlayer(wav);
                 micPlayer.Play();
                 await System.Threading.Tasks.Task.Delay((int)(samples.Length * 1000.0 / capture.SampleRate) + 300);
-                if (micTestState == 2) { micTestState = 0; SetMicTestLabel("\uE720", "Test my mic"); }
+                if (micTestState == 2 && run == micTestRun) { micTestState = 0; SetMicTestLabel("\uE720", "Test my mic"); }
             }
             catch (Exception ex)
             {
@@ -792,18 +808,22 @@ namespace TonelineEQ
         // 16-bit mono WAV, gently normalised so quiet mics are still audible (never boosted more than 4x).
         public static void WriteWav(string path, float[] s, int rate)
         {
+            using (FileStream fs = File.Create(path)) WriteWav(fs, s, rate);
+        }
+
+        public static void WriteWav(Stream output, float[] s, int rate)
+        {
             float peak = 0;
             foreach (float v in s) { float a = Math.Abs(v); if (a > peak) peak = a; }
             float gain = peak > 0 ? Math.Min(4f, 0.89f / peak) : 1f;
-            using (BinaryWriter w = new BinaryWriter(File.Create(path)))
-            {
-                int bytes = s.Length * 2;
-                w.Write(Encoding.ASCII.GetBytes("RIFF")); w.Write(36 + bytes); w.Write(Encoding.ASCII.GetBytes("WAVE"));
-                w.Write(Encoding.ASCII.GetBytes("fmt ")); w.Write(16); w.Write((short)1); w.Write((short)1);
-                w.Write(rate); w.Write(rate * 2); w.Write((short)2); w.Write((short)16);
-                w.Write(Encoding.ASCII.GetBytes("data")); w.Write(bytes);
-                foreach (float v in s) w.Write((short)Math.Max(-32768, Math.Min(32767, Math.Round(v * gain * 32767))));
-            }
+            BinaryWriter w = new BinaryWriter(output);   // not closed here: the stream belongs to the caller
+            int bytes = s.Length * 2;
+            w.Write(Encoding.ASCII.GetBytes("RIFF")); w.Write(36 + bytes); w.Write(Encoding.ASCII.GetBytes("WAVE"));
+            w.Write(Encoding.ASCII.GetBytes("fmt ")); w.Write(16); w.Write((short)1); w.Write((short)1);
+            w.Write(rate); w.Write(rate * 2); w.Write((short)2); w.Write((short)16);
+            w.Write(Encoding.ASCII.GetBytes("data")); w.Write(bytes);
+            foreach (float v in s) w.Write((short)Math.Max(-32768, Math.Min(32767, Math.Round(v * gain * 32767))));
+            w.Flush();
         }
 
         // Self-test: record one second without playing anything.
@@ -931,6 +951,7 @@ namespace TonelineEQ
                 row.Children.Add(lab);
                 Slider sl = new Slider { Minimum = -12, Maximum = 12, Value = Current.Bands[i].Gain, SmallChange = 0.5, LargeChange = 1, VerticalAlignment = VerticalAlignment.Center };
                 sl.ToolTip = "Drag to boost or cut. Double-click to reset to 0.";
+                AutomationProperties.SetName(sl, names[i]);
                 Grid.SetColumn(sl, 1);
                 row.Children.Add(sl);
                 TextBlock v = Ui.Txt("", 15, "#FFFFFF");
@@ -963,7 +984,7 @@ namespace TonelineEQ
             }
 
             // Quick picks: one click sets all three sliders, and the curve glides there.
-            TextBlock qh = Ui.Txt("QUICK PICKS", 10.5, "#8E8E93");
+            TextBlock qh = Ui.Txt("QUICK PICKS", 11, "#8E8E93");
             qh.FontWeight = FontWeights.SemiBold;
             qh.Margin = new Thickness(4, 12, 0, 7);
             simplePanel.Children.Add(qh);
@@ -1046,6 +1067,7 @@ namespace TonelineEQ
                 if (round != null) b.Style = round;
                 b.Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = size * 0.38 };
                 b.Click += delegate { MediaCommand(cmd); };
+                AutomationProperties.SetName(b, tip);
                 return b;
             };
             Button prev = mk("\uE892", 34, 0, "Previous track");
@@ -1124,6 +1146,7 @@ namespace TonelineEQ
             try
             {
                 NowPlayingInfo info = await NowPlaying.Read(npKey);
+                if (npCard == null) return;   // the window was closed to the tray while Windows was answering
                 if (info == null)
                 {
                     npKey = "";
@@ -1151,6 +1174,7 @@ namespace TonelineEQ
             }
             catch (Exception ex)
             {
+                if (npCard == null) return;
                 // Media controls unavailable on this PC: log once, hide the card and stop asking.
                 npFailed = true;
                 if (npTimer != null) npTimer.Stop();
@@ -1241,7 +1265,7 @@ namespace TonelineEQ
 
         void AddHeader(string s)
         {
-            ListBoxItem h = new ListBoxItem { Content = s.ToUpperInvariant(), IsEnabled = false, Foreground = Theme.Br("#8E8E93"), FontSize = 10.5 };
+            ListBoxItem h = new ListBoxItem { Content = s.ToUpperInvariant(), IsEnabled = false, Foreground = Theme.Br("#8E8E93"), FontSize = 11 };
             h.Padding = new Thickness(10, presetList.Items.Count == 0 ? 2 : 14, 10, 4);
             presetList.Items.Add(h);
         }
@@ -1359,7 +1383,10 @@ namespace TonelineEQ
             try
             {
                 string file = Path.Combine(Store.PresetDir(Kind), Store.SafeName(name) + ".txt");
-                Current.Name = Path.GetFileNameWithoutExtension(file);
+                string fileName = Path.GetFileNameWithoutExtension(file);
+                if (File.Exists(file) && !string.Equals(Current.Name, fileName, StringComparison.OrdinalIgnoreCase) &&
+                    !host.Confirm("Replace “" + fileName + "”?", "You already saved a preset with this name. Saving replaces it with the EQ you have now.", "Replace")) return;
+                Current.Name = fileName;
                 Current.Group = "user";
                 File.WriteAllText(file, ApoFormat.ToText(Current, null));
                 Dirty = false;
@@ -1378,6 +1405,7 @@ namespace TonelineEQ
             ListBoxItem it = presetList.SelectedItem as ListBoxItem;
             Preset p = it != null ? it.Tag as Preset : null;
             if (p == null || !p.IsUser) { host.Say("Select one of your saved presets to delete it"); return; }
+            if (!host.Confirm("Delete “" + p.Name + "”?", "This saved preset is removed for good. Built-in presets and your other saved presets stay.", "Delete")) return;
             try
             {
                 File.Delete(Path.Combine(Store.PresetDir(Kind), Store.SafeName(p.Name) + ".txt"));
@@ -1396,6 +1424,7 @@ namespace TonelineEQ
             if (dlg.ShowDialog(host) != true) return;
             try
             {
+                if (new FileInfo(dlg.FileName).Length > 2 * 1024 * 1024) { host.Say("That file is too big to be an EQ preset"); return; }
                 string name = Path.GetFileNameWithoutExtension(dlg.FileName).Replace("ParametricEQ", "").Trim();
                 if (name.Length == 0) name = "Imported";
                 Preset p = ApoFormat.Parse(File.ReadAllText(dlg.FileName), name);
@@ -1491,6 +1520,8 @@ namespace TonelineEQ
             };
             r.FT = Ui.NumBox(delegate (double v) { r.Band.Freq = Math.Round(ApoFormat.Clamp(v, 20, 20000), 1); RefreshRow(r); Edited(); });
             r.FT.Margin = new Thickness(8, 0, 12, 0);
+            AutomationProperties.SetName(r.FS, "Frequency");
+            AutomationProperties.SetName(r.FT, "Frequency in hertz");
             Grid.SetColumn(r.FS, 3); Grid.SetColumn(r.FT, 4);
             g.Children.Add(r.FS); g.Children.Add(r.FT);
 
@@ -1506,6 +1537,8 @@ namespace TonelineEQ
             };
             r.GT = Ui.NumBox(delegate (double v) { r.Band.Gain = ApoFormat.Clamp(v, -24, 24); RefreshRow(r); Edited(); });
             r.GT.Margin = new Thickness(8, 0, 12, 0);
+            AutomationProperties.SetName(r.GS, "Gain");
+            AutomationProperties.SetName(r.GT, "Gain in decibels");
             Grid.SetColumn(r.GS, 5); Grid.SetColumn(r.GT, 6);
             g.Children.Add(r.GS); g.Children.Add(r.GT);
 
@@ -1520,6 +1553,8 @@ namespace TonelineEQ
             };
             r.QT = Ui.NumBox(delegate (double v) { r.Band.Q = ApoFormat.Clamp(v, 0.1, 20); RefreshRow(r); Edited(); });
             r.QT.Margin = new Thickness(8, 0, 6, 0);
+            AutomationProperties.SetName(r.QS, "Width");
+            AutomationProperties.SetName(r.QT, "Q");
             Grid.SetColumn(r.QS, 7); Grid.SetColumn(r.QT, 8);
             g.Children.Add(r.QS); g.Children.Add(r.QT);
 
@@ -1529,6 +1564,8 @@ namespace TonelineEQ
             del.BorderBrush = Brushes.Transparent;
             del.Foreground = Theme.Br("#8E8E93");
             del.ToolTip = "Remove this band";
+            AutomationProperties.SetName(del, "Remove this band");
+            AutomationProperties.SetName(r.On, "Band on");
             Grid.SetColumn(del, 9);
             g.Children.Add(del);
 
@@ -1727,6 +1764,15 @@ namespace TonelineEQ
         // ---------------------------------------------------------------- self-test hooks
         public void DebugSelectBand(int i) { SelectBand(i, true); }
 
+        // Self-test: press an arrow key on the graph with the first band selected; returns that band.
+        public Band DebugNudge(Key key)
+        {
+            if (graph == null || Current.Bands.Count == 0) return null;
+            SelectBand(0, true);
+            graph.Nudge(key, false);
+            return Current.Bands[0];
+        }
+
         public string DebugViz()
         {
             double peak = -999;
@@ -1758,6 +1804,9 @@ namespace TonelineEQ
             preampSlider = null; preampBox = null; autoBtn = null; clipText = null; presetTitle = null; deviceText = null;
             power = null; vizToggle = null; bandsView = null; fxView = null; tabBands = null; tabFx = null;
             linkBtn = null; undoBtn = null; redoBtn = null; apoWarn = null; apoWarnText = null; micTestBtn = null;
+            simpleView = null; simplePanel = null; simpleSliders = null; simpleValues = null; tabSimple = null;
+            npCard = null; npArt = null; npTitle = null; npArtist = null; npPlay = null;
+            sideHost = null; mainArea = null; moreBtn = null;
             View = null;
         }
 
@@ -1915,6 +1964,7 @@ namespace TonelineEQ
             remove.Foreground = Theme.Br("#8E8E93");
             remove.Padding = new Thickness(8, 3, 8, 3);
             remove.ToolTip = "Remove this effect";
+            AutomationProperties.SetName(remove, "Remove this effect");
             DockPanel.SetDock(remove, Dock.Right);
             head.Children.Add(remove);
 
@@ -1922,11 +1972,13 @@ namespace TonelineEQ
             down.Padding = new Thickness(8, 3, 8, 3);
             down.Margin = new Thickness(4, 0, 0, 0);
             down.ToolTip = "Move later in the chain";
+            AutomationProperties.SetName(down, "Move later in the chain");
             down.IsEnabled = index < Effects.Count - 1;
             Button up = Ui.Btn("↑", delegate { if (index > 0) { Effects.RemoveAt(index); Effects.Insert(index - 1, f); RebuildFx(); FxEdited(); } });
             up.Padding = new Thickness(8, 3, 8, 3);
             up.Margin = new Thickness(6, 0, 0, 0);
             up.ToolTip = "Move earlier in the chain";
+            AutomationProperties.SetName(up, "Move earlier in the chain");
             up.IsEnabled = index > 0;
             DockPanel.SetDock(down, Dock.Right);
             DockPanel.SetDock(up, Dock.Right);
@@ -2055,7 +2107,10 @@ namespace TonelineEQ
             TimeSpan now = ra != null ? ra.RenderingTime : TimeSpan.FromMilliseconds(Environment.TickCount);
             if (now == lastFrame) return;
             double dtMs = lastFrame == TimeSpan.Zero ? 16.7 : (now - lastFrame).TotalMilliseconds;
-            double minMs = host.VizFps <= 0 ? 0 : 1000.0 / host.VizFps * 0.85;
+            // While you're using another app (a game, a browser), 30 frames a second is plenty: the PC's power goes to that app.
+            int cap = host.VizFps;
+            if (!host.AppActive && !Program.SelfTest && (cap <= 0 || cap > 30)) cap = 30;
+            double minMs = cap <= 0 ? 0 : 1000.0 / cap * 0.85;
             if (dtMs < minMs) return;
             lastFrame = now;
             VizStep(Math.Min(dtMs, 100) / 1000.0);

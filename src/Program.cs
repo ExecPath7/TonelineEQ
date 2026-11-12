@@ -12,7 +12,7 @@ namespace TonelineEQ
 {
     public static class Program
     {
-        public const string Version = "0.5";
+        public const string Version = "0.6";
         public static bool StartInTray;
         public static bool SelfTest;
         static Mutex instanceLock;
@@ -28,13 +28,20 @@ namespace TonelineEQ
             return args.Any(a => string.Equals(a, flag, StringComparison.OrdinalIgnoreCase));
         }
 
+        static DateTime lastErrorBox = DateTime.MinValue;
+        static bool errorBoxOpen;
+
         static void HookErrors(Application app)
         {
             app.DispatcherUnhandledException += delegate (object s, DispatcherUnhandledExceptionEventArgs e)
             {
                 Store.LogError(e.Exception);
-                MessageBox.Show("Toneline EQ hit a problem and wrote it to:\n" + Store.ErrorLog + "\n\n" + e.Exception.Message, "Toneline EQ", MessageBoxButton.OK, MessageBoxImage.Warning);
                 e.Handled = true;
+                // Every problem is logged, but a problem that repeats (say, on every frame) shows one message, not a wall of them.
+                if (errorBoxOpen || (DateTime.Now - lastErrorBox).TotalSeconds < 30) return;
+                errorBoxOpen = true;
+                try { MessageBox.Show("Toneline EQ hit a problem and wrote it to:\n" + Store.ErrorLog + "\n\n" + e.Exception.Message, "Toneline EQ", MessageBoxButton.OK, MessageBoxImage.Warning); }
+                finally { errorBoxOpen = false; lastErrorBox = DateTime.Now; }
             };
         }
 

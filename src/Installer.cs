@@ -422,7 +422,11 @@ namespace TonelineEQ
                         bool inside = SelfExe.StartsWith(InstallDir, StringComparison.OrdinalIgnoreCase);
                         if (inside)
                         {
-                            ProcessStartInfo psi = new ProcessStartInfo("cmd.exe", "/c ping 127.0.0.1 -n 3 >nul & rmdir /s /q \"" + InstallDir + "\"");
+                            // Windows' own tools by full path, started from the system folder: a command prompt can't
+                            // remove the folder it is standing in, and nothing in the program folder can pose as "ping".
+                            string ping = Path.Combine(Environment.SystemDirectory, "PING.EXE");
+                            ProcessStartInfo psi = new ProcessStartInfo(Sys.Tool("cmd.exe"), "/c \"\"" + ping + "\" 127.0.0.1 -n 3 >nul & rmdir /s /q \"" + InstallDir + "\"\"");
+                            psi.WorkingDirectory = Environment.SystemDirectory;
                             psi.CreateNoWindow = true;
                             psi.WindowStyle = ProcessWindowStyle.Hidden;
                             psi.UseShellExecute = false;

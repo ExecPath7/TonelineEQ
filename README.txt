@@ -1,4 +1,4 @@
-Toneline EQ 0.5 - a free, system-wide equalizer for Windows
+Toneline EQ 0.6 - a free, system-wide equalizer for Windows
 ======================================================
 
 Two equalizers in one small app:
@@ -26,6 +26,7 @@ USING IT
   - Switch between Headphones and Microphone at the top.
   - Drag dots on the graph, scroll over a dot for width (Q), double-click to
     add a band, Delete removes it, Ctrl+Z / Ctrl+Y undo and redo.
+    Arrow keys nudge the selected band (hold Shift for small steps).
   - Find my headphones (AutoEQ): search measured headphones and load a
     correction in one click.
   - Link to <device>: that preset loads automatically whenever the device

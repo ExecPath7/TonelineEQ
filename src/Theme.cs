@@ -405,6 +405,28 @@ namespace TonelineEQ
         // Apple-style controls: grey rounded buttons, segmented controls, iOS switches, slim sliders with a white knob.
         const string XamlTemplate = @"
 <ResourceDictionary xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>
+  <Style x:Key='Ring'>
+    <Setter Property='Control.Template'>
+      <Setter.Value>
+        <ControlTemplate><Border Margin='-4' CornerRadius='14' BorderBrush='#D4B470' BorderThickness='2'/></ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key='RingRound'>
+    <Setter Property='Control.Template'>
+      <Setter.Value>
+        <ControlTemplate><Border Margin='-3' CornerRadius='24' BorderBrush='#D4B470' BorderThickness='2'/></ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key='RingIn'>
+    <Setter Property='Control.Template'>
+      <Setter.Value>
+        <ControlTemplate><Border Margin='0,1' CornerRadius='8' BorderBrush='#D4B470' BorderThickness='2'/></ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <Style TargetType='Button'>
     <Setter Property='Foreground' Value='#FFFFFF'/>
     <Setter Property='Background' Value='#2C2C2E'/>
@@ -437,7 +459,7 @@ namespace TonelineEQ
     <Setter Property='Foreground' Value='#FFFFFF'/>
     <Setter Property='Background' Value='#2C2C2E'/>
     <Setter Property='Cursor' Value='Hand'/>
-    <Setter Property='FocusVisualStyle' Value='{x:Null}'/>
+    <Setter Property='FocusVisualStyle' Value='{StaticResource RingRound}'/>
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='Button'>
@@ -461,7 +483,7 @@ namespace TonelineEQ
     <Setter Property='Background' Value='#2C2C2E'/>
     <Setter Property='Padding' Value='16,7'/>
     <Setter Property='Cursor' Value='Hand'/>
-    <Setter Property='FocusVisualStyle' Value='{x:Null}'/>
+    <Setter Property='FocusVisualStyle' Value='{StaticResource RingRound}'/>
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='ToggleButton'>
@@ -491,7 +513,7 @@ namespace TonelineEQ
     <Setter Property='Foreground' Value='#FFFFFF'/>
     <Setter Property='Padding' Value='16,5'/>
     <Setter Property='Cursor' Value='Hand'/>
-    <Setter Property='FocusVisualStyle' Value='{x:Null}'/>
+    <Setter Property='FocusVisualStyle' Value='{StaticResource RingIn}'/>
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='RadioButton'>
@@ -523,7 +545,7 @@ namespace TonelineEQ
     <Setter Property='Padding' Value='12,5'/>
     <Setter Property='FontSize' Value='12'/>
     <Setter Property='Cursor' Value='Hand'/>
-    <Setter Property='FocusVisualStyle' Value='{x:Null}'/>
+    <Setter Property='FocusVisualStyle' Value='{StaticResource RingRound}'/>
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='RadioButton'>
@@ -552,7 +574,7 @@ namespace TonelineEQ
   <Style TargetType='CheckBox'>
     <Setter Property='Foreground' Value='#FFFFFF'/>
     <Setter Property='Cursor' Value='Hand'/>
-    <Setter Property='FocusVisualStyle' Value='{x:Null}'/>
+    <Setter Property='FocusVisualStyle' Value='{StaticResource Ring}'/>
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='CheckBox'>
@@ -582,7 +604,7 @@ namespace TonelineEQ
 
   <Style x:Key='Check' TargetType='CheckBox'>
     <Setter Property='Cursor' Value='Hand'/>
-    <Setter Property='FocusVisualStyle' Value='{x:Null}'/>
+    <Setter Property='FocusVisualStyle' Value='{StaticResource RingRound}'/>
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='CheckBox'>
@@ -708,7 +730,7 @@ namespace TonelineEQ
   </Style>
 
   <Style TargetType='Slider'>
-    <Setter Property='Focusable' Value='False'/>
+    <Setter Property='FocusVisualStyle' Value='{StaticResource RingRound}'/>
     <Setter Property='IsMoveToPointEnabled' Value='True'/>
     <Setter Property='Template'>
       <Setter.Value>
@@ -797,7 +819,7 @@ namespace TonelineEQ
   <Style TargetType='ListBoxItem'>
     <Setter Property='Foreground' Value='#E5E5EA'/>
     <Setter Property='Padding' Value='10,7'/>
-    <Setter Property='FocusVisualStyle' Value='{x:Null}'/>
+    <Setter Property='FocusVisualStyle' Value='{StaticResource RingIn}'/>
     <Setter Property='Template'>
       <Setter.Value>
         <ControlTemplate TargetType='ListBoxItem'>

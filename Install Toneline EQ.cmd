@@ -3,6 +3,18 @@ setlocal enabledelayedexpansion
 title Toneline EQ setup
 cd /d "%~dp0"
 
+rem Opened from inside the ZIP? Windows then unpacks only this one file, so the app's code isn't here.
+if not exist "src\Program.cs" (
+  echo.
+  echo  The rest of Toneline EQ is missing next to this file.
+  echo.
+  echo  If you opened it from inside the ZIP: close this window, right-click the ZIP,
+  echo  choose "Extract All...", and run "Install Toneline EQ.cmd" from the extracted folder.
+  echo.
+  pause
+  exit /b 1
+)
+
 set "FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319"
 if not exist "%FW%\csc.exe" set "FW=%WINDIR%\Microsoft.NET\Framework\v4.0.30319"
 if not exist "%FW%\csc.exe" (

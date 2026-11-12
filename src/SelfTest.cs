@@ -273,6 +273,96 @@ namespace TonelineEQ
                     }
                     OutPage.LoadPresetByName("Flat (10 bands)");
                 });
+                T("a preset from outside can't set a dangerous volume", delegate
+                {
+                    Preset loud = ApoFormat.Parse("Preamp: 96 dB\r\nFilter 1: ON PK Fc 1000 Hz Gain 99 dB Q 1\r\n", "Loud");
+                    Check(loud != null && loud.Bands.Count == 1, "not read");
+                    Check(loud.Preamp <= ApoFormat.MaxPreamp, "preamp " + loud.Preamp);
+                    Check(loud.Bands[0].Gain <= 24, "gain " + loud.Bands[0].Gain);
+                    Preset quiet = ApoFormat.Parse("Preamp: -500 dB\r\nFilter 1: ON PK Fc 1000 Hz Gain 1 dB Q 1\r\n", "Quiet");
+                    Check(quiet != null && quiet.Preamp >= ApoFormat.MinPreamp, "preamp too low");
+                    Check(ApoFormat.Clamp(double.NaN, -24, 24) == 0, "'not a number' passed through");
+                });
+                T("huge or endless pasted text is cut off", delegate
+                {
+                    System.Text.StringBuilder many = new System.Text.StringBuilder("Preamp: -3 dB\r\n");
+                    for (int i = 0; i < 5000; i++) many.Append("Filter ").Append(i).Append(": ON PK Fc 1000 Hz Gain 1 dB Q 1\r\n");
+                    Preset big = ApoFormat.Parse(many.ToString(), "Big");
+                    Check(big != null && big.Bands.Count <= ApoFormat.MaxParsedBands, "too many bands read");
+                    Preset longLine = ApoFormat.Parse("Preamp: -3 dB\r\nFilter 1: ON PK Fc " + new string('9', 100000) + " Hz Gain 1 dB Q 1\r\n", "Long");
+                    Check(longLine != null && longLine.Bands.Count == 0, "an endless line was read");
+                });
+                T("a share code can't unpack into gigabytes", delegate
+                {
+                    byte[] filler = new byte[8 * 1024 * 1024];
+                    for (int i = 0; i < filler.Length; i++) filler[i] = (byte)'A';
+                    string bomb;
+                    using (MemoryStream ms = new MemoryStream())
+                    {
+                        using (System.IO.Compression.DeflateStream ds = new System.IO.Compression.DeflateStream(ms, System.IO.Compression.CompressionMode.Compress, true)) ds.Write(filler, 0, filler.Length);
+                        bomb = "Toneline:" + Convert.ToBase64String(ms.ToArray()).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+                    }
+                    TLog("      a " + bomb.Length + "-character code that unpacks to 8 MB");
+                    System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+                    Check(ShareCode.Decode(bomb) == null, "oversized code accepted");
+                    Check(clock.ElapsedMilliseconds < 2000, "took " + clock.ElapsedMilliseconds + " ms");
+                    Check(ShareCode.Decode("Toneline:" + new string('A', ShareCode.MaxCodeChars + 4)) == null, "overlong code accepted");
+                });
+                T("downloads only come from the AutoEQ project", delegate
+                {
+                    foreach (string bad in new[] { "http://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results/INDEX.md", "https://example.com/x.txt", "https://raw.githubusercontent.com.evil.example/x", "file:///C:/Windows/win.ini", "C:\\Windows\\win.ini" })
+                    {
+                        bool blocked = false;
+                        try { Download(bad, 1000); } catch (InvalidOperationException) { blocked = true; }
+                        Check(blocked, "not blocked: " + bad);
+                    }
+                    Check(AutoEqPathOk("oratory1990/over-ear/Sennheiser%20HD%20650"), "a normal AutoEQ path was refused");
+                    foreach (string badPath in new[] { "../../../../evil/repo/main/x", "/abs", "a//b", "a\\b", "x?y", "https://evil.example/a", "" })
+                        Check(!AutoEqPathOk(badPath), "path accepted: " + badPath);
+                });
+                T("Windows tools are started by full path", delegate
+                {
+                    foreach (string tool in new[] { "explorer.exe", "control.exe", "cmd.exe" })
+                    {
+                        string full = Sys.Tool(tool);
+                        Check(Path.IsPathRooted(full) && File.Exists(full), tool + " -> " + full);
+                    }
+                });
+                T("plugin settings can't add a second command", delegate
+                {
+                    string dll = Path.Combine(dir, "Gate.dll");
+                    File.WriteAllText(dll, "");
+                    string line = new FxItem { Kind = "vst", Path = dll, Params = "ChunkData \"abc\"\r\nInclude: C:\\evil.txt\u2028Copy: L=R" }.ToApo();
+                    Check(line.StartsWith("VSTPlugin:") && line.IndexOfAny(new[] { '\r', '\n', '\u2028' }) < 0, "line break kept: " + line);
+                    Check(new FxItem { Kind = "vst", Path = dll + "\r\nInclude: evil.txt" }.ToApo() == "", "a path with a line break was accepted");
+                    string gainLine = new FxItem { Kind = "gain", Value = 500 }.ToApo();
+                    Check(gainLine == "Preamp: 24 dB", "gain effect not limited: " + gainLine);
+                });
+                T("mic test keeps the recording in memory", delegate
+                {
+                    float[] tone = new float[4800];
+                    for (int i = 0; i < tone.Length; i++) tone[i] = (float)(0.2 * Math.Sin(i * 0.05));
+                    using (MemoryStream ms = new MemoryStream())
+                    {
+                        EqPage.WriteWav(ms, tone, 48000);
+                        byte[] wav = ms.ToArray();
+                        Check(wav.Length == 44 + tone.Length * 2, "wav is " + wav.Length + " bytes");
+                        Check(wav[0] == 'R' && wav[1] == 'I' && wav[2] == 'F' && wav[3] == 'F', "no RIFF header");
+                        Check(ms.CanWrite, "the stream was closed");
+                    }
+                    Check(!File.Exists(Path.Combine(Path.GetTempPath(), "TonelineEQ-mic-test.wav")), "a mic recording is on the disk");
+                });
+                T("arrow keys move the selected band", delegate
+                {
+                    Check(OutPage.DebugLoad("Bass boost"), "Bass boost missing");
+                    double g0 = OutPage.Current.Bands[0].Gain, f0 = OutPage.Current.Bands[0].Freq;
+                    Band nb = OutPage.DebugNudge(Key.Up);
+                    Check(nb != null && Math.Abs(nb.Gain - (g0 + 0.5)) < 0.01, "gain went from " + g0 + " to " + (nb == null ? "nothing" : nb.Gain.ToString()));
+                    OutPage.DebugNudge(Key.Right);
+                    Check(OutPage.Current.Bands[0].Freq > f0, "frequency didn't move from " + f0);
+                    OutPage.Undo();
+                    OutPage.LoadPresetByName("Flat (10 bands)");
+                });
 
                 T("presets load and step", delegate
                 {
@@ -744,6 +834,25 @@ namespace TonelineEQ
                 T("uninstaller window", delegate { uninstall = Installer.UninstallWindow(); uninstall.Show(); });
                 await Task.Delay(700);
                 T("screenshot: uninstaller", delegate { Snap((FrameworkElement)uninstall.Content, "15-uninstaller.png"); uninstall.Close(); });
+
+                Window confirmWin = null;
+                T("confirm question before deleting", delegate
+                {
+                    confirmWin = MakeConfirm("Delete “My headphones”?", "This saved preset is removed for good. Built-in presets and your other saved presets stay.", "Delete", null);
+                    confirmWin.Show();
+                    confirmWin.UpdateLayout();
+                    Check(FindAll<Button>(confirmWin).Count == 2, "expected Cancel and Delete");
+                });
+                await Task.Delay(700);
+                T("screenshot: confirm question", delegate { Snap((FrameworkElement)confirmWin.Content, "16-confirm.png"); confirmWin.Close(); });
+                T("status dot keeps its state when the window is rebuilt", delegate
+                {
+                    bool was = lastLive;
+                    SetLive(true);
+                    BuildUI();
+                    Check(statusDot != null && ((SolidColorBrush)statusDot.Fill).Color == Theme.Green, "the dot went grey");
+                    SetLive(was);
+                });
 
                 T("save settings", delegate { SaveAll(); Check(File.Exists(Path.Combine(Store.Dir, "settings.txt")), "settings.txt not written"); });
                 string log = Store.ReadText("error.log");

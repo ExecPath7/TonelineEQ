@@ -8,6 +8,9 @@ If you find a security problem in Toneline EQ, please **don't open a public issu
 
 - **No secrets.** Toneline EQ uses no API keys, tokens, accounts, passwords or AI services, so there's nothing in this repository that anyone could take and use. The only thing it ever downloads is public AutoEQ data from GitHub, when you search for your headphones.
 - **Share codes only carry EQ numbers.** A share code or pasted preset is read as a name plus preamp and filter values. Everything else is thrown away, and names lose line breaks, so a code can't slip Equalizer APO commands (like loading a plugin) into your config. The self-test checks this.
+- **Presets from outside are limited.** Whatever a share code, pasted text, imported file or download says, the preamp stays within the slider's range (so it can't blast your ears), sizes are capped (so a tiny code can't unpack into gigabytes), and odd values are thrown away. The self-test checks this too.
+- **One download address.** The only thing Toneline EQ fetches is AutoEQ text from `raw.githubusercontent.com`, over HTTPS, with a time and size limit. It won't follow a redirect to another site.
+- **Nothing recorded to disk.** "Test my mic" keeps its 5 seconds in memory and drops them after playback.
 - **No admin rights.** Toneline EQ and its installer run as your normal Windows user.
 
 ## Staying safe

@@ -296,6 +296,9 @@ namespace TonelineEQ
             box.KeyDown += delegate (object s, KeyEventArgs e) { if (e.Key == Key.Enter) { commit(); e.Handled = true; } };
             box.LostKeyboardFocus += delegate { commit(); };
             tools.Children.Add(box);
+            // The wheel has its own hex box: while it is open this one steps aside, so the same number isn't shown twice.
+            Action<bool> showHex = delegate (bool show) { lbl.Visibility = show ? Visibility.Visible : Visibility.Collapsed; box.Visibility = lbl.Visibility; };
+            showHex(openWheel != key);
             if (canReset && reset != null)
             {
                 Button rs = Ui.Btn("Reset", delegate { if (openWheel == key) openWheel = null; reset(); });
@@ -314,7 +317,7 @@ namespace TonelineEQ
                 w.Committed += delegate (Color c) { picked(c); };
                 host.Child = w;
             }
-            Action close = delegate { if (host.Visibility == Visibility.Visible) Motion.Reveal(host, false); };
+            Action close = delegate { if (host.Visibility == Visibility.Visible) { Motion.Reveal(host, false); showHex(true); } };
             wheelClosers.Add(close);
             wheelDot.MouseLeftButtonUp += delegate
             {
@@ -322,6 +325,7 @@ namespace TonelineEQ
                 foreach (Action a in wheelClosers) a();
                 openWheel = open ? key : null;
                 if (!open) return;
+                showHex(false);
                 ColorWheel w = new ColorWheel(current);
                 w.Changed += delegate (Color c) { box.Text = Theme.Hex(c); };
                 w.Committed += delegate (Color c) { picked(c); };
@@ -492,7 +496,7 @@ namespace TonelineEQ
             sp.Children.Add(Block("Per-device presets", "Linked presets load automatically when that device becomes the Windows default, for example a correction for your earbuds' dongle and another for your headphones.", links));
 
             sp.Children.Add(SectionTitle("Visualizer"));
-            sp.Children.Add(OptionRow("Frame rate", "Max follows your monitor's refresh rate (60, 144, 240 Hz...), the smoothest. 30 or 60 save a little power. It only runs while the window is open.",
+            sp.Children.Add(OptionRow("Frame rate", "Max follows your monitor's refresh rate (60, 144, 240 Hz...), the smoothest. 30 or 60 save a little power. It only runs while the window is open, and slows to 30 by itself while you're using another app, such as a game.",
                 Segmented(new string[] { "30", "60", "Max" }, VizFps == 30 ? 0 : (VizFps <= 0 ? 2 : 1), delegate (int i) { VizFps = (new int[] { 30, 60, 0 })[i]; OptionsChanged(); })));
             sp.Children.Add(OptionRow("Sensitivity", "How quiet a sound still shows up. 60 dB is calmer, 100 dB shows the faintest detail.",
                 Segmented(new string[] { "60 dB", "80 dB", "100 dB" }, Pick(VizRange, new double[] { 60, 80, 100 }), delegate (int i) { VizRange = (new double[] { 60, 80, 100 })[i]; OptionsChanged(); })));
@@ -514,7 +518,7 @@ namespace TonelineEQ
 
             sp.Children.Add(SectionTitle("Files and Windows"));
             WrapPanel files = new WrapPanel();
-            AddLinkButton(files, "My presets folder", delegate { try { Process.Start("explorer.exe", "\"" + Store.PresetDir(PageKind.Output) + "\""); } catch { } });
+            AddLinkButton(files, "My presets folder", delegate { try { Process.Start(Sys.Tool("explorer.exe"), "\"" + Store.PresetDir(PageKind.Output) + "\""); } catch { } });
             AddLinkButton(files, "Equalizer APO folder", delegate { OpenApoFolder(); });
             AddLinkButton(files, "Equalizer APO Configurator", delegate { OpenConfigurator(); });
             AddLinkButton(files, "Windows recording settings", delegate { OpenRecordingSettings(); });
@@ -787,6 +791,7 @@ namespace TonelineEQ
 
         void RestoreDefaults()
         {
+            if (!Confirm("Restore default settings?", "Tray, equalizer, visualizer and appearance settings go back to how Toneline EQ comes. Your presets, device links and the EQ you have now are kept.", "Restore")) return;
             CloseToTray = true; Notify = true; AutoPreamp = false; VizFilled = true; VizColor = 0;
             GraphRange = 15; VizRange = 80; VizFps = 0; VizSmooth = 1;
             LevelMatch = true; LowMemory = true;
@@ -794,6 +799,64 @@ namespace TonelineEQ
             Theme.ResetAll();
             OptionsChanged();
             ApplyTheme();
+        }
+
+        // A short question before something that can't be undone, in the app's own look. Cancel is the default
+        // (Enter and Esc both cancel), and the button that goes ahead is red, as on a phone.
+        public bool Confirm(string title, string message, string actionLabel)
+        {
+            if (Program.SelfTest) return true;
+            bool ok = false;
+            MakeConfirm(title, message, actionLabel, delegate (bool yes) { ok = yes; }).ShowDialog();
+            return ok;
+        }
+
+        public Window MakeConfirm(string title, string message, string actionLabel, Action<bool> answered)
+        {
+            Window win = new Window
+            {
+                Title = "Toneline EQ", Width = 430, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false, FontSize = 13, UseLayoutRounding = true,
+                Background = Theme.Br("#000000"), Foreground = Theme.Br("#E5E5EA"), FontFamily = Theme.Family
+            };
+            Window owner = settingsWin != null && settingsWin.IsActive ? settingsWin : (Window)this;
+            if (owner.IsVisible) { win.Owner = owner; win.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
+            else win.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            DarkTitle(win);
+
+            StackPanel sp = new StackPanel { Margin = new Thickness(26, 22, 26, 22) };
+            TextBlock head = Ui.Txt(title, 16, "#FFFFFF");
+            head.FontWeight = FontWeights.SemiBold;
+            head.TextWrapping = TextWrapping.Wrap;
+            sp.Children.Add(head);
+            TextBlock body = Ui.Txt(message, 13, "#AEAEB2");
+            body.TextWrapping = TextWrapping.Wrap;
+            body.LineHeight = 19;
+            body.Margin = new Thickness(0, 8, 0, 22);
+            sp.Children.Add(body);
+
+            DockPanel buttons = new DockPanel { LastChildFill = false };
+            Button go = Ui.Btn(actionLabel, delegate { if (answered != null) answered(true); win.Close(); });
+            go.Background = Theme.Solid(Theme.Parse(Theme.IsLight ? "#FF3B30" : "#FF453A"));
+            go.Foreground = Brushes.White;
+            go.FontWeight = FontWeights.SemiBold;
+            go.Padding = new Thickness(18, 7, 18, 7);
+            DockPanel.SetDock(go, Dock.Right);
+            buttons.Children.Add(go);
+            Button cancel = Ui.Btn("Cancel", delegate { win.Close(); });
+            cancel.IsCancel = true;
+            cancel.IsDefault = true;
+            cancel.Padding = new Thickness(18, 7, 18, 7);
+            cancel.Margin = new Thickness(0, 0, 10, 0);
+            DockPanel.SetDock(cancel, Dock.Right);
+            buttons.Children.Add(cancel);
+            sp.Children.Add(buttons);
+
+            UIElement content = Ui.WrapBackground(sp);
+            ((FrameworkElement)content).LayoutTransform = new ScaleTransform(Theme.Scale, Theme.Scale);
+            win.Content = content;
+            win.Loaded += delegate { cancel.Focus(); };
+            return win;
         }
 
         // ---------------------------------------------------------------- Guide
@@ -962,6 +1025,7 @@ namespace TonelineEQ
             if (guideKind == PageKind.Output) item("Find my headphones", "Searches the AutoEQ database of measured headphones and IEMs and loads a correction in one click.");
             item("Keyboard shortcuts", "Ctrl+Alt+E and Ctrl+Alt+M switch the headphone and mic EQ on or off; Ctrl+Alt+Page Down / Page Up change the headphone preset. They work in games and show a small message.");
             item("Undo", "Ctrl+Z and Ctrl+Y, or the Undo and Redo buttons, step back and forth through your changes.");
+            item("Arrow keys", "Click a dot on the graph, then nudge it with the keyboard: up and down change the gain, left and right the frequency. Hold Shift for small steps. Delete removes the band.");
             item("Share code", "In the ⋯ menu next to Save: Copy share code puts your EQ in one short line (Toneline:...). Send it to anyone; they paste it with Paste from clipboard. Plain Equalizer APO or AutoEQ text pastes too.");
 
             h("Tips");

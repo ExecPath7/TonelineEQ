@@ -61,7 +61,17 @@ namespace TonelineEQ
 
         public static string N(double v) { return v.ToString("0.##", IC); }
 
-        public static double Clamp(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }
+        // "Not a number" (typed as NaN, or the result of broken maths) never passes through as a value.
+        public static double Clamp(double v, double lo, double hi)
+        {
+            if (double.IsNaN(v)) return lo > 0 ? lo : (hi < 0 ? hi : 0);
+            return v < lo ? lo : (v > hi ? hi : v);
+        }
+
+        // Limits for anything read from outside Toneline EQ (share codes, pasted text, downloads, files). They keep a
+        // broken or hostile text from freezing the app, and from setting a volume that could hurt ears or headphones.
+        public const int MaxTextChars = 200000, MaxLineChars = 300, MaxParsedBands = 64;
+        public const double MinPreamp = -24, MaxPreamp = 6;
 
         // Preset names end up in Equalizer APO's config file and in settings.txt, one per line. A name from a share code,
         // a pasted text or a download could hide a line break followed by a real Equalizer APO command (for example one that
@@ -134,24 +144,32 @@ namespace TonelineEQ
             Preset p = new Preset();
             p.Name = name;
             bool any = false;
+            if (text == null) return null;
+            if (text.Length > MaxTextChars) text = text.Substring(0, MaxTextChars);
             foreach (string raw in text.Replace("\r", "").Split('\n'))
             {
                 string line = raw;
                 int hash = line.IndexOf('#');
                 if (hash >= 0) line = line.Substring(0, hash);
-                line = line.Trim();
-                if (line.Length == 0) continue;
+                line = line.Trim().TrimStart('\uFEFF').TrimStart();
+                if (line.Length == 0 || line.Length > MaxLineChars) continue;
 
                 Match pm = Regex.Match(line, @"^Preamp\s*:\s*([-+]?[0-9]*\.?[0-9]+)", RegexOptions.IgnoreCase);
                 if (pm.Success)
                 {
-                    p.Preamp = double.Parse(pm.Groups[1].Value, IC);
-                    any = true;
+                    // The preamp stays inside what the slider allows: a preset from outside can't blast the volume.
+                    double pre;
+                    if (double.TryParse(pm.Groups[1].Value, NumberStyles.Float, IC, out pre))
+                    {
+                        p.Preamp = Clamp(pre, MinPreamp, MaxPreamp);
+                        any = true;
+                    }
                     continue;
                 }
 
                 Match fm = Regex.Match(line, @"^Filter\s*[0-9]*\s*:\s*(ON|OFF)\s+([A-Za-z]+)\s*(.*)$", RegexOptions.IgnoreCase);
                 if (!fm.Success) continue;
+                if (p.Bands.Count >= MaxParsedBands) continue;
 
                 string code = fm.Groups[2].Value.ToUpperInvariant();
                 string rest = fm.Groups[3].Value;
@@ -379,7 +397,7 @@ namespace TonelineEQ
             switch (Kind)
             {
                 case "gain":
-                    return "Preamp: " + Db(Value) + " dB";
+                    return "Preamp: " + Db(ApoFormat.Clamp(Value, -24, 24)) + " dB";
                 case "balance":
                     if (Math.Abs(Value) < 0.5) return "";
                     {
@@ -392,13 +410,31 @@ namespace TonelineEQ
                 case "swap":
                     return "Copy: L=R R=L";
                 case "conv":
-                    return Path.Length > 0 && System.IO.File.Exists(Path) ? "Convolution: " + Path : "";
+                    return OneLinePath(Path) && System.IO.File.Exists(Path) ? "Convolution: " + Path : "";
                 case "vst":
-                    if (Path.Length == 0 || !System.IO.File.Exists(Path)) return "";
-                    return "VSTPlugin: Library \"" + Path + "\"" + (Params.Trim().Length > 0 ? " " + Params.Trim() : "");
+                    if (!OneLinePath(Path) || !System.IO.File.Exists(Path)) return "";
+                    // Plugin settings stay on the plugin's own line, so they can never start a second command.
+                    string ps = OneLine(Params);
+                    return "VSTPlugin: Library \"" + Path + "\"" + (ps.Length > 0 ? " " + ps : "");
                 default:
                     return Params ?? "";
             }
+        }
+
+        static string OneLine(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            StringBuilder sb = new StringBuilder(s.Length);
+            foreach (char c in s) sb.Append(char.IsControl(c) || c == '\u2028' || c == '\u2029' || c == '\u0085' ? ' ' : c);
+            return sb.ToString().Trim();
+        }
+
+        // A file path that is safe to put in Equalizer APO's config: one line, no quotes.
+        static bool OneLinePath(string p)
+        {
+            if (string.IsNullOrEmpty(p) || p.IndexOf('"') >= 0) return false;
+            foreach (char c in p) if (char.IsControl(c) || c == '\u2028' || c == '\u2029' || c == '\u0085') return false;
+            return true;
         }
 
         static string B64(string s) { return Convert.ToBase64String(Encoding.UTF8.GetBytes(s ?? "")); }
@@ -431,6 +467,21 @@ namespace TonelineEQ
                 list.Add(f);
             }
             return list;
+        }
+    }
+
+    // ------------------------------------------------------------------ Windows' own tools
+    // Explorer, Control Panel and the command prompt are started by their full path, never just by name. A look-alike
+    // file placed next to Toneline EQ (a folder any program of yours can write to) can then never be started in their
+    // place, which matters most after "Restart as administrator".
+    public static class Sys
+    {
+        public static string Tool(string name)
+        {
+            string dir = string.Equals(name, "explorer.exe", StringComparison.OrdinalIgnoreCase)
+                ? Environment.GetFolderPath(Environment.SpecialFolder.Windows)
+                : Environment.SystemDirectory;
+            return Path.Combine(dir, name);
         }
     }
 
@@ -490,7 +541,14 @@ namespace TonelineEQ
 
         public static void LogError(Exception ex)
         {
-            try { File.AppendAllText(ErrorLog, DateTime.Now.ToString("s") + "  " + ex + "\r\n\r\n"); } catch { }
+            try
+            {
+                // The log never grows without end: past half a megabyte it starts over.
+                FileInfo fi = new FileInfo(ErrorLog);
+                if (fi.Exists && fi.Length > 512 * 1024) fi.Delete();
+                File.AppendAllText(ErrorLog, DateTime.Now.ToString("s") + "  " + ex + "\r\n\r\n");
+            }
+            catch { }
         }
 
         public static string ReadText(string name)
@@ -559,6 +617,7 @@ namespace TonelineEQ
     public static class ShareCode
     {
         const string Prefix = "Toneline:";
+        public const int MaxCodeChars = 40000, MaxUnpackedChars = 65536;
 
         public static string Encode(Preset p)
         {
@@ -577,6 +636,7 @@ namespace TonelineEQ
             if (string.IsNullOrEmpty(text)) return null;
             Match m = Regex.Match(text, @"(?:Toneline|EasyEQ):([A-Za-z0-9_\-]{8,})");
             if (!m.Success) return null;
+            if (m.Groups[1].Length > MaxCodeChars) return null;   // far longer than any real preset
             try
             {
                 string b = m.Groups[1].Value.Replace('-', '+').Replace('_', '/');
@@ -585,8 +645,12 @@ namespace TonelineEQ
                 using (System.IO.Compression.DeflateStream ds = new System.IO.Compression.DeflateStream(src, System.IO.Compression.CompressionMode.Decompress))
                 using (System.IO.StreamReader r = new System.IO.StreamReader(ds, System.Text.Encoding.UTF8))
                 {
-                    string all = r.ReadToEnd();
-                    if (all.Length > 200000) return null;
+                    // Unpack a limited amount only: a tiny code can be built to unpack into gigabytes and fill the memory.
+                    char[] buf = new char[MaxUnpackedChars + 1];
+                    int n = 0, got;
+                    while (n < buf.Length && (got = r.Read(buf, n, buf.Length - n)) > 0) n += got;
+                    if (n > MaxUnpackedChars) return null;
+                    string all = new string(buf, 0, n);
                     int nl = all.IndexOf('\n');
                     if (nl < 0) return null;
                     string name = ApoFormat.CleanName(all.Substring(0, nl));
