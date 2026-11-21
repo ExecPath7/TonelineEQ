@@ -12,7 +12,7 @@ namespace TonelineEQ
 {
     public static class Program
     {
-        public const string Version = "0.65";
+        public const string Version = "0.7";
         public static bool StartInTray;
         public static bool JustUpdated;   // started by the updater: say "Updated to ..." once
         public static bool SelfTest;

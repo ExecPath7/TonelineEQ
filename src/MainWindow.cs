@@ -258,8 +258,38 @@ namespace TonelineEQ
             if (Program.StartInTray) Dispatcher.BeginInvoke(new Action(TrimMemory), DispatcherPriority.ApplicationIdle);
         }
 
-        // True while Toneline EQ (any of its windows) is the app you're using. The visualizer slows down when it isn't.
+        // True while Toneline EQ (any of its windows) is the app you're using.
         public bool AppActive = true;
+
+        [System.Runtime.InteropServices.DllImport("shell32.dll")] static extern int SHQueryUserNotificationState(out int state);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+
+        bool otherFull;
+        int otherFullAt = int.MinValue;
+
+        // True while another app (a game, a video) runs full screen in front. Asked at most once a second.
+        public bool OtherAppFullscreen
+        {
+            get
+            {
+                int now = Environment.TickCount;
+                if (unchecked(now - otherFullAt) < 1000 && otherFullAt != int.MinValue) return otherFull;
+                otherFullAt = now;
+                otherFull = false;
+                try
+                {
+                    uint pid;
+                    IntPtr fg = GetForegroundWindow();
+                    if (fg == IntPtr.Zero || (GetWindowThreadProcessId(fg, out pid) != 0 && pid == (uint)Process.GetCurrentProcess().Id)) return false;
+                    int state;
+                    // 2: a full-screen app, 3: a full-screen game (Direct3D), 4: presentation mode
+                    if (SHQueryUserNotificationState(out state) == 0) otherFull = state == 2 || state == 3 || state == 4;
+                }
+                catch { }
+                return otherFull;
+            }
+        }
 
         static bool IsInstalledCopy()
         {

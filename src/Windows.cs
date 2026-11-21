@@ -501,7 +501,7 @@ namespace TonelineEQ
             sp.Children.Add(Block("Per-device presets", "Linked presets load automatically when that device becomes the Windows default, for example a correction for your earbuds' dongle and another for your headphones.", links));
 
             sp.Children.Add(SectionTitle("Visualizer"));
-            sp.Children.Add(OptionRow("Frame rate", "Max follows your monitor's refresh rate (60, 144, 240 Hz...), the smoothest. 30 or 60 save a little power. It only runs while the window is open, and slows to 30 by itself while you're using another app, such as a game.",
+            sp.Children.Add(OptionRow("Frame rate", "Max follows your monitor's refresh rate (60, 144, 240 Hz...), the smoothest. 30 or 60 save a little power. It only runs while the window is open, and slows to 30 by itself while a game or another app runs full screen.",
                 Segmented(new string[] { "30", "60", "Max" }, VizFps == 30 ? 0 : (VizFps <= 0 ? 2 : 1), delegate (int i) { VizFps = (new int[] { 30, 60, 0 })[i]; OptionsChanged(); })));
             sp.Children.Add(OptionRow("Sensitivity", "How quiet a sound still shows up. 60 dB is calmer, 100 dB shows the faintest detail.",
                 Segmented(new string[] { "60 dB", "80 dB", "100 dB" }, Pick(VizRange, new double[] { 60, 80, 100 }), delegate (int i) { VizRange = (new double[] { 60, 80, 100 })[i]; OptionsChanged(); })));

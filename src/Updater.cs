@@ -55,22 +55,25 @@ namespace TonelineEQ
             return m.Success ? m.Groups[1].Value : null;
         }
 
-        // Toneline EQ numbers its versions like decimals: 0.6 < 0.65 < 0.7 < 1.0. Versions with three parts
-        // (1.2.3) compare part by part.
+        // Toneline EQ numbers its versions like decimals: 0.6 < 0.65 < 0.7 < 0.71 < 1.0. The first two parts are
+        // read as one decimal number, any parts after that count one by one (0.7 < 0.7.1 < 0.7.2 < 0.71).
+        // Note: the 0.65 updater reads every two-part tag the same way, but not three-part tags, so keep to
+        // two parts (0.71, 0.72, 0.8) while people may still be on 0.65.
         public static bool IsNewer(string candidate, string current)
         {
             if (VersionOfTag(candidate) == null || VersionOfTag(current) == null) return false;
             string[] a = candidate.Split('.'), b = current.Split('.');
-            if (a.Length == 2 && b.Length == 2)
+            decimal x, y;
+            if (!decimal.TryParse(a[0] + "." + a[1], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out x) ||
+                !decimal.TryParse(b[0] + "." + b[1], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out y)) return false;
+            if (x != y) return x > y;
+            for (int i = 2; i < Math.Max(a.Length, b.Length); i++)
             {
-                decimal x, y;
-                if (!decimal.TryParse(candidate, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out x) ||
-                    !decimal.TryParse(current, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out y)) return false;
-                return x > y;
+                int pa = i < a.Length ? int.Parse(a[i], CultureInfo.InvariantCulture) : 0;
+                int pb = i < b.Length ? int.Parse(b[i], CultureInfo.InvariantCulture) : 0;
+                if (pa != pb) return pa > pb;
             }
-            Version va, vb;
-            if (!System.Version.TryParse(candidate, out va) || !System.Version.TryParse(current, out vb)) return false;
-            return va > vb;
+            return false;
         }
 
         // Reads GitHub's answer about the latest Release. Returns null if it isn't a usable, published release.

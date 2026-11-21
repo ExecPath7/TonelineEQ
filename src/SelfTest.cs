@@ -866,6 +866,7 @@ namespace TonelineEQ
                     Check(Updater.ParseRelease(json.Replace("v9.9", "nightly")) == null, "a tag that isn't a version was accepted");
                     Check(Updater.ParseRelease(json.Replace("v9.9", "v1.0/../../evil")) == null, "a path in the tag was accepted");
                     Check(Updater.IsNewer("0.7", "0.65") && Updater.IsNewer("0.65", "0.6") && Updater.IsNewer("1.0", "0.65") && Updater.IsNewer("0.66", "0.65"), "newer versions not seen");
+                    Check(Updater.IsNewer("0.7.1", "0.65") && Updater.IsNewer("0.7.1", "0.7") && Updater.IsNewer("0.71", "0.7.1") && !Updater.IsNewer("0.7", "0.7.1"), "three-part versions compared wrong");
                     Check(!Updater.IsNewer("0.65", "0.65") && !Updater.IsNewer("0.6", "0.65") && !Updater.IsNewer("0.5", "0.65") && !Updater.IsNewer("x", "0.65"), "an older version counted as newer");
                 });
                 T("updater only talks to its own GitHub page", delegate
@@ -891,11 +892,11 @@ namespace TonelineEQ
                 });
                 T("update button and window", delegate
                 {
-                    UpdateReady = new UpdateInfo { Tag = "v0.7", Version = "0.7", Page = "https://github.com/ExecPath7/TonelineEQ/releases/tag/v0.7",
+                    UpdateReady = new UpdateInfo { Tag = "v0.8", Version = "0.8", Page = "https://github.com/ExecPath7/TonelineEQ/releases/tag/v0.8",
                         Notes = Updater.PlainNotes("## What's new\n- The graph draws faster\n- New presets for gaming headsets\n- Fixed: the mic test on USB microphones") };
                     ShowUpdatePill();
-                    Check(updatePill != null && updatePill.Visibility == Visibility.Visible && (updatePill.Content as string) == "Update to 0.7", "the Update button didn't show");
-                    updateSkip = "0.7";
+                    Check(updatePill != null && updatePill.Visibility == Visibility.Visible && (updatePill.Content as string) == "Update to 0.8", "the Update button didn't show");
+                    updateSkip = "0.8";
                     ShowUpdatePill();
                     Check(updatePill.Visibility == Visibility.Collapsed, "a skipped version still shows");
                     updateSkip = "";
@@ -944,6 +945,69 @@ namespace TonelineEQ
                     });
                 }
                 else TLog("      (update build test skipped: no update-test.zip next to the test folder)");
+
+                // Frame rate of the visualizer: normal window, maximized, maximized with a picture and glow, with and
+                // without the cached layers. The numbers go to the log (they depend on the screen and the graphics card).
+                {
+                    double oldGlow = Theme.Glow;
+                    string oldImage = Theme.ImagePath;
+                    int oldFast = Ui.FastLayers;
+                    WindowState oldState = WindowState;
+                    Func<int, Task<double>> measure = async delegate (int ms)
+                    {
+                        int frames = 0;
+                        TimeSpan lastT = TimeSpan.Zero;
+                        EventHandler h = delegate (object s2, EventArgs e2)
+                        {
+                            RenderingEventArgs ra = e2 as RenderingEventArgs;
+                            if (ra != null && ra.RenderingTime != lastT) { lastT = ra.RenderingTime; frames++; }
+                        };
+                        await Task.Delay(400);
+                        CompositionTarget.Rendering += h;
+                        await Task.Delay(ms);
+                        CompositionTarget.Rendering -= h;
+                        return frames * 1000.0 / ms;
+                    };
+                    Func<string, int, bool, bool, Task<double>> run = async delegate (string label, int fast, bool max, bool fancy)
+                    {
+                        Ui.FastLayers = fast;
+                        Theme.Glow = fancy ? 1 : 0;
+                        Theme.ImagePath = fancy ? Path.Combine(Path.GetFullPath(dir), "test-background.png") : "";
+                        WindowState = max ? WindowState.Maximized : WindowState.Normal;
+                        if (label.Contains("big window")) { Width = 2400; Height = 1300; }
+                        BuildUI();
+                        ShowPage(OutPage);
+                        OutPage.VizOn = true;
+                        EqPage.DemoSound = true;
+                        UpdateVisualizers();
+                        double f = await measure(2500);
+                        TLog("      fps " + f.ToString("0") + "  " + label + (max ? " (" + (int)ActualWidth + "x" + (int)ActualHeight + ")" : ""));
+                        return f;
+                    };
+                    int tier = RenderCapability.Tier >> 16;
+                    HwndSource src = PresentationSource.FromVisual(this) as HwndSource;
+                    TLog("      screens: " + string.Join(" | ", System.Windows.Forms.Screen.AllScreens.Select(sc => sc.DeviceName + " " + sc.Bounds.Width + "x" + sc.Bounds.Height + (sc.Primary ? " primary" : "")).ToArray()) +
+                        "; window on " + System.Windows.Forms.Screen.FromHandle(new WindowInteropHelper(this).Handle).DeviceName);
+                    TLog("      graphics tier " + tier + ", render mode " + (src != null ? src.CompositionTarget.RenderMode.ToString() : "?") + ", process mode " + RenderOptions.ProcessRenderMode);
+                    double oldW = Width, oldH = Height;
+                    double fNormal = await run("normal window", 1, false, false);
+                    await run("big window (not maximized)", 1, false, false);
+                    Width = oldW; Height = oldH;
+                    double fFancy2 = await run("maximized + picture + glow", 1, true, true);
+                    double fMax2 = await run("maximized", 1, true, false);
+                    Ui.FastLayers = oldFast;
+                    Theme.Glow = oldGlow;
+                    Theme.ImagePath = oldImage;
+                    WindowState = oldState;
+                    EqPage.DemoSound = false;
+                    BuildUI();
+                    ShowPage(OutPage);
+                    T("maximized window keeps its frame rate", delegate
+                    {
+                        Check(fMax2 >= fNormal * 0.8, "maximized " + fMax2.ToString("0") + " fps vs normal " + fNormal.ToString("0") + " fps");
+                        Check(fFancy2 >= fNormal * 0.8, "maximized with picture " + fFancy2.ToString("0") + " fps vs normal " + fNormal.ToString("0") + " fps");
+                    });
+                }
 
                 T("save settings", delegate { SaveAll(); Check(File.Exists(Path.Combine(Store.Dir, "settings.txt")), "settings.txt not written"); });
                 string log = Store.ReadText("error.log");

@@ -232,6 +232,34 @@ namespace TonelineEQ
             Grid g = new Grid();
             g.ClipToBounds = true;
             g.Background = glass ? (Brush)Brushes.Transparent : Theme.Br("#000000");
+            // The picture, its dimming and the glows sit in one layer that is drawn once and kept as a ready image,
+            // so the visualizer (redrawn up to every frame) doesn't make Windows repaint them each time.
+            Grid bg = new Grid { IsHitTestVisible = false };
+            g.Children.Add(bg);
+            g = BackgroundInto(g, bg, content);
+            if (bg.Children.Count > 0) Cache(bg, 1);
+            return g;
+        }
+
+        // 0: no layer caching, 1: the background (picture and glows) is kept as a ready image.
+        public static int FastLayers = 1;
+
+        // Keep a still layer as a ready image at the screen's real resolution (times the app's size setting).
+        public static void Cache(FrameworkElement el, double extraScale)
+        {
+            if (FastLayers == 0) return;
+            el.Loaded += delegate
+            {
+                PresentationSource ps = PresentationSource.FromVisual(el);
+                double dpi = ps != null && ps.CompositionTarget != null ? ps.CompositionTarget.TransformToDevice.M11 : 1;
+                el.CacheMode = new BitmapCache { RenderAtScale = Math.Max(1, dpi * extraScale), SnapsToDevicePixels = true };
+            };
+        }
+
+        static Grid BackgroundInto(Grid g, Grid bgLayer, UIElement content)
+        {
+            Grid realG = g;
+            g = bgLayer;
             if (!string.IsNullOrEmpty(Theme.ImagePath) && File.Exists(Theme.ImagePath))
             {
                 try
@@ -261,6 +289,7 @@ namespace TonelineEQ
                 glow.GradientStops.Add(new GradientStop(Color.FromArgb((byte)Math.Min(255, 0x2A * Theme.Glow), a.R, a.G, a.B), 0));
                 glow.GradientStops.Add(new GradientStop(Color.FromArgb((byte)Math.Min(255, 0x0A * Theme.Glow), a.R, a.G, a.B), 0.45));
                 glow.GradientStops.Add(new GradientStop(Color.FromArgb(0, a.R, a.G, a.B), 1));
+                glow.Freeze();
                 g.Children.Add(new Border { Background = glow, IsHitTestVisible = false });
                 Color t = Theme.Text;
                 RadialGradientBrush cool = new RadialGradientBrush();
@@ -270,10 +299,11 @@ namespace TonelineEQ
                 cool.RadiusY = 0.7;
                 cool.GradientStops.Add(new GradientStop(Color.FromArgb((byte)Math.Min(255, 0x10 * Theme.Glow), t.R, t.G, t.B), 0));
                 cool.GradientStops.Add(new GradientStop(Color.FromArgb(0, t.R, t.G, t.B), 1));
+                cool.Freeze();
                 g.Children.Add(new Border { Background = cool, IsHitTestVisible = false });
             }
-            g.Children.Add(content);
-            return g;
+            realG.Children.Add(content);
+            return realG;
         }
     }
 
@@ -2107,9 +2137,10 @@ namespace TonelineEQ
             TimeSpan now = ra != null ? ra.RenderingTime : TimeSpan.FromMilliseconds(Environment.TickCount);
             if (now == lastFrame) return;
             double dtMs = lastFrame == TimeSpan.Zero ? 16.7 : (now - lastFrame).TotalMilliseconds;
-            // While you're using another app (a game, a browser), 30 frames a second is plenty: the PC's power goes to that app.
+            // While a game (or any other app) runs full screen, 30 frames a second is plenty: the PC's power goes to the game.
+            // Toneline EQ itself, maximized or not, always runs at the rate you chose.
             int cap = host.VizFps;
-            if (!host.AppActive && !Program.SelfTest && (cap <= 0 || cap > 30)) cap = 30;
+            if (!Program.SelfTest && host.OtherAppFullscreen && (cap <= 0 || cap > 30)) cap = 30;
             double minMs = cap <= 0 ? 0 : 1000.0 / cap * 0.85;
             if (dtMs < minMs) return;
             lastFrame = now;

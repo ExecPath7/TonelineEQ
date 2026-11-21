@@ -124,14 +124,12 @@ namespace TonelineEQ
 
         Brush barBrush;
         double brushTop = double.NaN, brushBottom;
-        Pen barPen;
-        double penWidth = -1;
         int[] groupStart, groupEnd;
         int groupN = -1, groupSrc = -1;
 
         public SpectrumLayer() { IsHitTestVisible = false; }
 
-        public void ResetColors() { barBrush = null; barPen = null; InvalidateVisual(); }
+        public void ResetColors() { barBrush = null; InvalidateVisual(); }
 
         // Mirrored gradient: blue at the centre line, orange at the very tips, so taller bars reach warmer colours.
         Brush BarBrush(double top, double bottom)
@@ -143,12 +141,16 @@ namespace TonelineEQ
             g.StartPoint = new Point(0, top);
             g.EndPoint = new Point(0, bottom);
             double[] at = { 0, 0.35, 0.55, 0.75, 1 };
-            for (int k = 4; k >= 0; k--) g.GradientStops.Add(new GradientStop(s[k], 0.5 - at[k] / 2));
-            for (int k = 1; k <= 4; k++) g.GradientStops.Add(new GradientStop(s[k], 0.5 + at[k] / 2));
+            // The bars' 90% opacity is part of the colours: a separate see-through layer would make Windows paint the
+            // whole visualizer area into an extra picture on every frame, which got slow in a big (maximized) window.
+            for (int k = 4; k >= 0; k--) g.GradientStops.Add(new GradientStop(Fade(s[k]), 0.5 - at[k] / 2));
+            for (int k = 1; k <= 4; k++) g.GradientStops.Add(new GradientStop(Fade(s[k]), 0.5 + at[k] / 2));
             g.Freeze();
-            barBrush = g; brushTop = top; brushBottom = bottom; barPen = null;
+            barBrush = g; brushTop = top; brushBottom = bottom;
             return g;
         }
+
+        static Color Fade(Color c) { c.A = (byte)Math.Round(c.A * 0.9); return c; }
 
         // Which analyser columns feed each bar; the columns are evenly spaced in log frequency, like the bars.
         void Group(int n, int src)
@@ -177,33 +179,20 @@ namespace TonelineEQ
                 Group(n, Levels.Length);
                 double step = p.Width / n, w = Math.Max(2, step * 0.6);
                 Brush br = BarBrush(cy - maxHalf, cy + maxHalf);
-                if (barPen == null || penWidth != w)
+                // Each bar is a filled rounded rectangle. (Drawing them as thick lines with round ends looked the same
+                // but made Windows do far more work: a maximized window dropped from 140 to about 30 frames a second.)
                 {
-                    barPen = new Pen(br, w);
-                    barPen.StartLineCap = PenLineCap.Round;
-                    barPen.EndLineCap = PenLineCap.Round;
-                    barPen.Freeze();
-                    penWidth = w;
-                }
-                StreamGeometry geo = new StreamGeometry();
-                using (StreamGeometryContext c = geo.Open())
-                {
+                    double r = w / 2;
                     for (int j = 0; j < n; j++)
                     {
                         double lv = double.MinValue;
                         for (int k = groupStart[j]; k < groupEnd[j]; k++) if (Levels[k] > lv) lv = Levels[k];
                         double t = ApoFormat.Clamp((lv + RangeDb) / RangeDb, 0, 1);
-                        // One continuous bar, mirrored around the centre line; round caps add w/2 at each end.
-                        double half = Math.Max(0.01, t * maxHalf - w / 2);
-                        double x = p.Left + step * (j + 0.5);
-                        c.BeginFigure(new Point(x, cy - half), false, false);
-                        c.LineTo(new Point(x, cy + half), true, false);
+                        double half = Math.Max(r, t * maxHalf);
+                        double x = p.Left + step * (j + 0.5) - r;
+                        dc.DrawRoundedRectangle(br, null, new Rect(x, cy - half, w, half * 2), r, r);
                     }
                 }
-                geo.Freeze();
-                dc.PushOpacity(0.9);
-                dc.DrawGeometry(null, barPen, geo);
-                dc.Pop();
             }
             else
             {

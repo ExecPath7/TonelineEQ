@@ -20,7 +20,7 @@
 
 <p align="center">
   <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0A84FF">
-  <img alt="Version 0.65" src="https://img.shields.io/badge/version-0.65-30D158">
+  <img alt="Version 0.7" src="https://img.shields.io/badge/version-0.7-30D158">
   <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-8E8E93">
   <img alt="Free, no ads, no tracking" src="https://img.shields.io/badge/free-no%20ads%20%C2%B7%20no%20tracking-FF9F0A">
 </p>
